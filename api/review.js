@@ -190,7 +190,9 @@ module.exports = async (req, res) => {
   const k = String(q.k || "");
   try {
     if (q.d !== undefined) {
-      if (!process.env.DASHBOARD_KEY || String(q.d) !== process.env.DASHBOARD_KEY) {
+      // Forgiving match: ignore spaces, plus signs and capitals, which phones and copy-paste mangle.
+      const norm = (x) => String(x || "").replace(/[\s+]/g, "").toLowerCase();
+      if (!norm(process.env.DASHBOARD_KEY) || norm(q.d) !== norm(process.env.DASHBOARD_KEY)) {
         res.status(403).send("This dashboard link isn't valid.");
         return;
       }
