@@ -1,8 +1,10 @@
 // Review page for The Almanac's daily Shorts.
 //
 // The pipeline texts each reviewer a link like /review?i=12&k=<key>. This page shows the video
-// and script from GitHub issue #12 and turns the buttons into issue comments (/approve,
-// /revise <notes>, /reject), which the repo's approve.yml workflow acts on.
+// and script from GitHub issue #12 and turns the buttons into issue comments, which the repo's
+// approve.yml workflow acts on: /draft <notes> (preview a script change, nothing rendered),
+// /render (make the cut from the draft), /revise <notes> (render straight away), /approve, /reject.
+// The issue's comments show on the page as a chat thread.
 // The key is random per Short and stored in the issue, so only people with the text can act.
 //
 // Dashboard: /review?d=<DASHBOARD_KEY> lists every Short waiting for review, with its link.
@@ -32,6 +34,10 @@ details{background:var(--card);border:1px solid var(--line);border-radius:10px;p
 summary{font-weight:600;cursor:pointer}ol{padding-left:20px;margin:8px 0}li{margin:4px 0}
 a{color:var(--brown)}.small{font-size:13px;color:var(--muted)}
 .list a.item{display:block;text-decoration:none;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin:10px 0}
+.thread{margin:16px 0}.msg{padding:10px 14px;border-radius:14px;margin:8px 0;max-width:92%;font-size:15px;overflow-wrap:anywhere}
+.msg.me{background:var(--blue);color:#10263a;margin-left:auto;border-bottom-right-radius:4px}
+.msg.bot{background:var(--card);border:1px solid var(--line);border-bottom-left-radius:4px}
+.msg ul{padding-left:18px;margin:6px 0}.msg del{opacity:.6}.who{font-size:11px;color:var(--muted);margin-bottom:2px}
 .list .t{font:700 17px/1.3 Georgia,serif}.tag{display:inline-block;font-size:12px;padding:2px 8px;border-radius:99px;background:var(--line);margin-top:6px}`;
 
 async function gh(path, opts = {}) {
@@ -50,6 +56,39 @@ async function gh(path, opts = {}) {
 
 const esc = (s) =>
   String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+
+// Bold, strikethrough, links and "- " bullets are enough for the bot's comments.
+function md(text) {
+  const inline = (t) => esc(t)
+    .replace(/\*\*(.+?)\*\*/g, "<b>$1</b>")
+    .replace(/~~(.+?)~~/g, "<del>$1</del>")
+    .replace(/_(.+?)_/g, "<i>$1</i>")
+    .replace(/(https:\/\/[^\s<]+)/g, '<a href="$1">link</a>');
+  const out = []; let list = false;
+  for (const line of String(text).split("\n")) {
+    if (/^\s*[-*] /.test(line)) { if (!list) { out.push("<ul>"); list = true; } out.push(`<li>${inline(line.replace(/^\s*[-*] /, ""))}</li>`); continue; }
+    if (list) { out.push("</ul>"); list = false; }
+    out.push(line.trim() ? inline(line) + "<br>" : "<br>");
+  }
+  if (list) out.push("</ul>");
+  return out.join("").replace(/(<br>){3,}/g, "<br><br>");
+}
+
+// A command comment shown as the reviewer's own words.
+function said(t) {
+  const m = t.match(/^\/(\w+)\s*([\s\S]*)/);
+  const rest = (m && m[2] || "").replace(/_Sent from the review page\._/, "").trim();
+  return { approve: "Approved.", reject: "Rejected.", render: "Make this cut.", revise: rest, draft: rest }[m && m[1]] ?? t;
+}
+
+function thread(comments) {
+  const msgs = comments.filter((c) => !/^\s*$/.test(c.body)).map((c) => {
+    const bot = c.user && c.user.type === "Bot";
+    const text = bot ? md(c.body) : esc(said(c.body)).replace(/\n/g, "<br>");
+    return `<div class="msg ${bot ? "bot" : "me"}"><div class="who">${bot ? "Studio" : esc(c.user ? c.user.login : "")}</div>${text}</div>`;
+  });
+  return msgs.length ? `<div class="thread">${msgs.join("")}</div>` : "";
+}
 
 function section(body, name) {
   const m = body.match(new RegExp(`### ${name}\\n([\\s\\S]*?)(?=\\n### |\\n---|$)`));
@@ -70,7 +109,13 @@ function status(issue, comments) {
   // Newest bot update after the newest command decides whether something is in progress.
   for (let n = texts.length - 1; n >= 0; n--) {
     const t = texts[n];
-    if (/^New cut is up/.test(t)) return { kind: "ready", text: "A new cut is ready (below)." };
+    if (/^New cut is up/.test(t)) return { kind: "ready", text: "A new cut is ready (above)." };
+    if (/^Draft ready/.test(t)) {
+      const cost = (t.match(/\*\*Make this cut:\*\*\s*([^\n]+)/) || [])[1] || "";
+      return { kind: "ready", draft: true, cost, text: "" };
+    }
+    if (/^\/draft/.test(t)) return { kind: "busy", text: "Drafting the change. Refresh in about a minute." };
+    if (/^\/render/.test(t)) return { kind: "busy", text: "Making the cut. Refresh in a few minutes." };
     if (/^On it/.test(t)) return { kind: "busy", text: "Making the new cut. Refresh in a few minutes." };
     if (/^\/approve/.test(t)) return { kind: "busy", text: "Approved. Posting now; refresh in a couple of minutes." };
     if (/^\/reject/.test(t)) return { kind: "busy", text: "Rejecting…" };
@@ -79,7 +124,7 @@ function status(issue, comments) {
   return { kind: "ready", text: "" };
 }
 
-function page({ title, show, date, video, watch, script, notes, caption, st, i, k, flash }) {
+function page({ title, show, date, video, watch, script, notes, caption, st, i, k, flash, thread }) {
   const lines = script.split("\n").filter(Boolean).map((l) => `<li>${esc(l.replace(/^\d+\.\s*/, ""))}</li>`).join("");
   const open = st.kind === "ready";
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
@@ -92,17 +137,24 @@ ${video ? `<video src="${esc(video)}" controls playsinline preload="metadata"></
          : `<p><a href="${esc(watch)}">Watch on GitHub</a> (needs your GitHub login)</p>`}
 ${flash ? `<div class="status busy">${esc(flash)}</div>` : ""}
 ${st.text ? `<div class="status ${st.kind}">${esc(st.text)}${(st.links || []).map((l) => `<br><a href="${esc(l)}">${esc(l)}</a>`).join("")}</div>` : ""}
+${thread}
 ${open ? `<form method="post" class="btns">
   <input type="hidden" name="i" value="${esc(i)}"><input type="hidden" name="k" value="${esc(k)}">
-  <button class="ok" name="action" value="approve">Approve and post</button>
-  <textarea name="notes" placeholder="What should change? e.g. say the year sooner, slower ending"></textarea>
-  <button class="rev" name="action" value="revise">Send notes for a new cut</button>
-  <button class="no" name="action" value="reject" onclick="return confirm('Throw this Short away?')">Reject</button>
+  ${st.draft ? `<button class="ok" name="action" value="render">Make this cut${(st.cost.match(/\$[\d.]+/) || [])[0] ? ` · about ${esc(st.cost.match(/\$[\d.]+/)[0])}` : ""}</button>` : ""}
+  <textarea name="notes" placeholder="${st.draft ? "Anything else to change in this draft?" : "What should change? e.g. explain why they were shot, say the year sooner"}"></textarea>
+  <button class="rev" name="action" value="draft">${st.draft ? "Update the draft" : "Show me the change"}</button>
+  <p class="small" style="margin:0">You'll see the new script and price first. Nothing is rendered until you tap Make this cut.</p>
+  ${st.draft ? "" : `<button class="ok" name="action" value="approve">Approve and post</button>`}
+  <details style="margin:0"><summary class="small">More</summary>
+    ${st.draft ? `<button class="ok" style="margin-top:10px" name="action" value="approve">Ignore the draft: approve the current cut</button>` : ""}
+    <button class="rev" style="margin-top:10px" name="action" value="revise">Skip the preview: render my notes now</button>
+    <button class="no" style="margin-top:10px" name="action" value="reject" onclick="return confirm('Throw this Short away?')">Reject</button>
+  </details>
 </form>` : ""}
 <details open><summary>Script</summary><ol>${lines}</ol></details>
 ${notes && notes !== "- none" ? `<details><summary>Fact-check notes</summary><p class="small">${esc(notes).replace(/\n/g, "<br>")}</p></details>` : ""}
 ${caption ? `<details><summary>Caption</summary><p class="small">${esc(caption).replace(/\n/g, "<br>")}</p></details>` : ""}
-<p class="small">Revisions only re-make the shots your notes change. <a href="https://github.com/${REPO}/issues/${esc(i)}">Open in GitHub</a></p>
+<p class="small">Changes only re-make the shots they touch. <a href="https://github.com/${REPO}/issues/${esc(i)}">Open in GitHub</a></p>
 </main></body></html>`;
 }
 
@@ -160,8 +212,10 @@ module.exports = async (req, res) => {
       if (action === "approve") comment = "/approve\n\n_Sent from the review page._";
       if (action === "reject") comment = "/reject\n\n_Sent from the review page._";
       if (action === "revise" && notes) comment = `/revise ${notes}`;
+      if (action === "draft" && notes) comment = `/draft ${notes}`;
+      if (action === "render") comment = "/render";
       if (comment && issue.state === "open") await gh(`/issues/${i}/comments`, { method: "POST", body: JSON.stringify({ body: comment }) });
-      const flash = action === "revise" && !notes ? "Type your notes first, then send." : "";
+      const flash = (action === "revise" || action === "draft") && !notes ? "Type your notes first, then send." : "";
       res.writeHead(303, { Location: `/review?i=${i}&k=${k}${flash ? "&e=notes" : ""}` });
       res.end();
       return;
@@ -176,7 +230,7 @@ module.exports = async (req, res) => {
       video: (body.match(/<!-- video:(\S+) -->/) || [])[1],
       watch: (body.match(/Watch:\*\*\s*(\S+)/) || [])[1] || issue.html_url,
       script: section(body, "Script"), notes: section(body, "Minor fact-check notes"), caption: section(body, "Caption"),
-      st: status(issue, comments), i, k,
+      st: status(issue, comments), i, k, thread: thread(comments),
       flash: q.e === "notes" ? "Type your notes first, then send." : "",
     }));
   } catch (e) {
