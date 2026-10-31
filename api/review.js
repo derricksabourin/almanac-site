@@ -124,7 +124,7 @@ function status(issue, comments) {
   return { kind: "ready", text: "" };
 }
 
-function page({ title, show, date, video, watch, script, notes, caption, st, i, k, flash, thread }) {
+function page({ title, show, date, video, thumb, watch, script, notes, caption, st, i, k, flash, thread }) {
   const lines = script.split("\n").filter(Boolean).map((l) => `<li>${esc(l.replace(/^\d+\.\s*/, ""))}</li>`).join("");
   const open = st.kind === "ready";
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
@@ -135,6 +135,7 @@ function page({ title, show, date, video, watch, script, notes, caption, st, i, 
 <h1>${esc(title)}</h1><p class="sub">${esc(show)}${date ? " · " + esc(date) : ""}</p>
 ${video ? `<video src="${esc(video)}" controls playsinline preload="metadata"></video>`
          : `<p><a href="${esc(watch)}">Watch on GitHub</a> (needs your GitHub login)</p>`}
+${thumb ? `<details><summary>Thumbnail</summary><img src="${esc(thumb)}" alt="Thumbnail" style="width:60%;display:block;margin:10px auto 4px;border-radius:10px"><p class="small" style="text-align:center">To change the words, ask below (e.g. "thumbnail text: BROKE AT 40").</p></details>` : ""}
 ${flash ? `<div class="status busy">${esc(flash)}</div>` : ""}
 ${st.text ? `<div class="status ${st.kind}">${esc(st.text)}${(st.links || []).map((l) => `<br><a href="${esc(l)}">${esc(l)}</a>`).join("")}</div>` : ""}
 ${thread}
@@ -230,6 +231,7 @@ module.exports = async (req, res) => {
       title: issue.title.replace(/^(\[TEST[^\]]*\]\s*)?Approve:\s*/, "").replace(/^.*? — /, ""),
       show: head[1] || "", date: head[2] || "",
       video: (body.match(/<!-- video:(\S+) -->/) || [])[1],
+      thumb: (body.match(/<!-- thumb:(\S+) -->/) || [])[1],
       watch: (body.match(/Watch:\*\*\s*(\S+)/) || [])[1] || issue.html_url,
       script: section(body, "Script"), notes: section(body, "Minor fact-check notes"), caption: section(body, "Caption"),
       st: status(issue, comments), i, k, thread: thread(comments),
