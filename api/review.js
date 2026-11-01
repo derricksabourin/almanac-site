@@ -39,7 +39,7 @@ a{color:var(--brown)}.small{font-size:13px;color:var(--muted)}
 .msg.bot{background:var(--card);border:1px solid var(--line);border-bottom-left-radius:4px}
 .msg ul{padding-left:18px;margin:6px 0}.msg del{opacity:.6}.who{font-size:11px;color:var(--muted);margin-bottom:2px}
 .list .t{font:700 17px/1.3 Georgia,serif}
-.tabs{display:flex;gap:6px;margin:12px 0 6px}.tab{padding:8px 16px;border-radius:99px;border:1px solid var(--line);text-decoration:none;color:var(--ink);font-weight:600;font-size:15px}.tab.on{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.tabs{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0 6px}.tab{padding:8px 16px;border-radius:99px;border:1px solid var(--line);text-decoration:none;color:var(--ink);font-weight:600;font-size:15px}.tab.on{background:var(--ink);color:var(--bg);border-color:var(--ink)}
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin:10px 0}
 .bar{margin:10px 0}.bl{font-size:14px;margin-bottom:4px}.bt{display:flex;align-items:center;gap:8px}.bf{height:16px;min-width:2px;background:var(--brown);border-radius:4px}.bt span{font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
 .pie{display:flex;gap:14px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line)}.pie:last-child{border-bottom:0}.pie svg{flex:none}
@@ -183,7 +183,7 @@ const PLAT = [["YouTube", "#b3412f"], ["Instagram", "#965C2A"], ["Facebook", "#4
 
 function tabs(d, tab) {
   const t = (id, label) => `<a href="/review?d=${encodeURIComponent(d)}${id ? "&tab=" + id : ""}" class="tab${tab === id ? " on" : ""}">${label}</a>`;
-  return `<nav class="tabs">${t("", "Review")}${t("stats", "Analytics")}${t("plan", "Plan")}</nav>`;
+  return `<nav class="tabs">${t("", "Review")}${t("stats", "Analytics")}${t("plan", "Plan")}${t("accounts", "Accounts")}</nav>`;
 }
 
 // One pie per Short: its views split by platform.
@@ -342,6 +342,44 @@ ${bar("Our pace", pace, "var(--brown)")}${bar("Breakout plan", target("breakout"
 </main></body></html>`);
 }
 
+// Which login owns which account, and what the studio uses to reach it (config/accounts.json).
+async function accountsPage(res, d) {
+  let a = null;
+  try {
+    const r = await fetch(`https://api.github.com/repos/${REPO}/contents/config/accounts.json`, {
+      headers: { Authorization: `Bearer ${process.env.GITHUB_TOKEN}`, Accept: "application/vnd.github.raw+json", "User-Agent": "almanac-review" },
+    });
+    a = r.ok ? await r.json() : null;
+  } catch {}
+  const pill = (s) => {
+    const c = { connected: "#2f7d4f", "in use": "#2f7d4f", manual: "#a07415", optional: "#6b6b6b" }[s] || "#b3412f";
+    return `<span class="pill" style="background:${c}">${esc(s)}</span>`;
+  };
+  const login = (x) => x ? esc(x) : '<span class="small">not recorded yet</span>';
+  const row = (x) => `<div class="acct">
+  <div class="ah"><b>${esc(x.platform || x.name)}</b> ${x.handle ? (x.url ? `<a href="${esc(x.url)}">${esc(x.handle)}</a>` : esc(x.handle)) : ""} ${pill(x.status)}</div>
+  ${x.what ? `<div class="small">${esc(x.what)}</div>` : ""}
+  <div class="kv"><span>Login</span><span>${login(x.login)}</span></div>
+  ${x.studio ? `<div class="kv"><span>Studio</span><span>${esc(x.studio)}</span></div>` : ""}
+  ${x.secret ? `<div class="kv"><span>Secret</span><span><code>${esc(x.secret)}</code></span></div>` : ""}
+</div>`;
+  const body = !a ? '<p class="small">Accounts list not found.</p>' :
+    a.pages.map((p) => `<h2>${esc(p.name)}</h2>${p.accounts.map(row).join("")}`).join("") +
+    `<h2>Services</h2>${a.services.map(row).join("")}
+<p class="small">Passwords and keys are never stored here: only which email logs in and the name of the GitHub secret the studio uses. To change something, tell Claude.</p>`;
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.status(200).send(`<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">
+<title>Almanac accounts</title><style>${CSS}
+.acct{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:10px 0}
+.ah{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:4px}
+.pill{color:#fff;border-radius:999px;padding:1px 9px;font-size:.75rem;font-family:system-ui,sans-serif}
+.kv{display:grid;grid-template-columns:62px 1fr;gap:8px;font-size:.9rem;margin-top:4px}.kv>span:first-child{color:var(--muted)}
+.kv code{font-size:.8rem;word-break:break-all}</style></head><body><main class="list">
+<div class="top">The Almanac · Review</div>${tabs(d, "accounts")}<h1>Accounts</h1>${body}
+</main></body></html>`);
+}
+
 async function dashboard(res, d) {
   const open = await gh(`/issues?labels=approval&state=open&per_page=30`);
   const done = await gh(`/issues?labels=approval&state=closed&per_page=6`);
@@ -380,6 +418,7 @@ module.exports = async (req, res) => {
         return;
       }
       if (q.tab === "plan") return await planPage(res, String(q.d));
+      if (q.tab === "accounts") return await accountsPage(res, String(q.d));
       return q.tab === "stats" ? await statsPage(res, String(q.d)) : await dashboard(res, String(q.d));
     }
     if (!i || !k) throw new Error("bad link");
