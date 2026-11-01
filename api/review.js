@@ -133,7 +133,7 @@ function status(issue, comments) {
   return { kind: "ready", text: "" };
 }
 
-function page({ title, show, date, video, thumb, watch, script, notes, caption, st, i, k, flash, thread }) {
+function page({ title, show, date, video, thumb, watch, script, notes, caption, pinned, st, i, k, flash, thread }) {
   const lines = script.split("\n").filter(Boolean).map((l) => `<li>${esc(l.replace(/^\d+\.\s*/, ""))}</li>`).join("");
   const open = st.kind === "ready";
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
@@ -163,7 +163,8 @@ ${open ? `<form method="post" class="btns">
 </form>` : ""}
 <details open><summary>Script</summary><ol>${lines}</ol></details>
 ${notes && notes !== "- none" ? `<details><summary>Fact-check notes</summary><p class="small">${esc(notes).replace(/\n/g, "<br>")}</p></details>` : ""}
-${caption ? `<details><summary>Caption</summary><p class="small">${esc(caption).replace(/\n/g, "<br>")}</p></details>` : ""}
+${caption ? `<details><summary>Caption</summary><p class="small">${esc(caption).replace(/\n/g, "<br>")}</p><button type="button" class="rev" onclick="navigator.clipboard.writeText(this.dataset.t);this.textContent='Copied'" data-t="${esc(caption)}">Copy caption</button></details>` : ""}
+${pinned && !pinned.startsWith("No book") ? `<details open><summary>Pinned comment</summary><p class="small">${esc(pinned)}</p><p class="small">Pin it under the post on YouTube, TikTok, Instagram and Facebook. Threads gets the clickable book link automatically.</p><button type="button" class="rev" onclick="navigator.clipboard.writeText(this.dataset.t);this.textContent='Copied'" data-t="${esc(pinned)}">Copy pinned comment</button></details>` : ""}
 <p class="small">Changes only re-make the shots they touch. <a href="https://github.com/${REPO}/issues/${esc(i)}">Open in GitHub</a></p>
 </main></body></html>`;
 }
@@ -435,7 +436,7 @@ module.exports = async (req, res) => {
       video: (body.match(/<!-- video:(\S+) -->/) || [])[1] || `/review?i=${i}&k=${k}&v=1`,
       thumb: (body.match(/<!-- thumb:(\S+) -->/) || [])[1],
       watch: (body.match(/Watch:\*\*\s*(\S+)/) || [])[1] || issue.html_url,
-      script: section(body, "Script"), notes: section(body, "Minor fact-check notes"), caption: section(body, "Caption"),
+      script: section(body, "Script"), notes: section(body, "Minor fact-check notes"), caption: section(body, "Caption"), pinned: section(body, "Pinned comment"),
       st: status(issue, comments), i, k, thread: thread(comments),
       flash: q.e === "notes" ? "Type your notes first, then send." : "",
     }));
