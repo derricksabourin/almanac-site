@@ -38,7 +38,13 @@ a{color:var(--brown)}.small{font-size:13px;color:var(--muted)}
 .msg.me{background:var(--blue);color:#10263a;margin-left:auto;border-bottom-right-radius:4px}
 .msg.bot{background:var(--card);border:1px solid var(--line);border-bottom-left-radius:4px}
 .msg ul{padding-left:18px;margin:6px 0}.msg del{opacity:.6}.who{font-size:11px;color:var(--muted);margin-bottom:2px}
-.list .t{font:700 17px/1.3 Georgia,serif}.list div.item{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:8px 0}.tag{display:inline-block;font-size:12px;padding:2px 8px;border-radius:99px;background:var(--line);margin-top:6px}`;
+.list .t{font:700 17px/1.3 Georgia,serif}
+.tabs{display:flex;gap:6px;margin:12px 0 6px}.tab{padding:8px 16px;border-radius:99px;border:1px solid var(--line);text-decoration:none;color:var(--ink);font-weight:600;font-size:15px}.tab.on{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin:10px 0}
+.bar{margin:10px 0}.bl{font-size:14px;margin-bottom:4px}.bt{display:flex;align-items:center;gap:8px}.bf{height:16px;min-width:2px;background:var(--brown);border-radius:4px}.bt span{font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
+.pie{display:flex;gap:14px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line)}.pie:last-child{border-bottom:0}.pie svg{flex:none}
+.legend{display:flex;gap:14px;font-size:13px;color:var(--muted);margin:6px 0}.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+.learn{padding-left:20px;margin:0}.learn li{margin:0 0 12px}.list div.item{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:8px 0}.tag{display:inline-block;font-size:12px;padding:2px 8px;border-radius:99px;background:var(--line);margin-top:6px}`;
 
 async function gh(path, opts = {}) {
   const r = await fetch(`https://api.github.com/repos/${REPO}${path}`, {
@@ -169,45 +175,76 @@ async function analytics() {
   } catch { return null; }
 }
 
-// Retention curve as a small line chart; the red tick is where the most people leave.
-function spark(curve, worst, seconds) {
-  if (!curve || curve.length < 2) return "";
-  const W = 120, H = 34, top = Math.max(1, ...curve.map((p) => p[1]));
-  const pts = curve.map(([x, y]) => `${(x * W).toFixed(1)},${(H - (y / top) * H).toFixed(1)}`).join(" ");
-  const wx = worst != null && seconds ? ((worst / seconds) * W).toFixed(1) : null;
-  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="display:block;margin-top:6px" aria-label="Audience retention">
-    <polyline points="${pts}" fill="none" stroke="var(--brown)" stroke-width="1.6"/>
-    ${wx ? `<line x1="${wx}" x2="${wx}" y1="0" y2="${H}" stroke="#b3412f" stroke-width="1" stroke-dasharray="2 2"/>` : ""}</svg>`;
+const PLAT = [["YouTube", "#b3412f"], ["Instagram", "#965C2A"], ["Facebook", "#4f86b8"]];
+
+function tabs(d, tab) {
+  const t = (id, label) => `<a href="/review?d=${encodeURIComponent(d)}${id ? "&tab=" + id : ""}" class="tab${tab === id ? " on" : ""}">${label}</a>`;
+  return `<nav class="tabs">${t("", "Review")}${t("stats", "Analytics")}</nav>`;
 }
 
-function stats(a) {
-  if (!a) return "";
-  const pct = (x) => (x == null ? "–" : `${Math.round(x * 100)}%`);
-  const when = (iso) => new Date(iso).toLocaleDateString("en-CA", { month: "short", day: "numeric" });
-  const pages = Object.values(a.pages || {}).map((p) => {
-    const yt = [...p.youtube].sort((x, y) => y.published.localeCompare(x.published)).map((v) => {
-      const d = v.dropoff || {};
-      return `<div class="item"><div class="t" style="font-size:15px">${esc(v.title)}</div>
-        <div class="small">YouTube · ${when(v.published)} · <b>${v.views.toLocaleString()}</b> views · ${v.likes} likes · ${v.comments} comments
-        ${v.avg_percent != null ? `<br>Watched on average: <b>${v.avg_percent}%</b> (${v.avg_seconds}s of ${v.seconds}s)` : ""}
-        ${d.half != null ? `<br>Still watching at 3s: ${pct(d.at_3s)} · halfway: ${pct(d.half)} · end: ${pct(d.end)}` : ""}
-        ${d.worst_second != null ? `<br>Biggest drop: around <b>${d.worst_second}s</b>` : ""}</div>
-        ${spark(v.curve, d.worst_second, v.seconds)}</div>`;
-    }).join("");
-    const ig = [...p.instagram].sort((x, y) => y.published.localeCompare(x.published)).map((m) =>
-      `<div class="item"><div class="small">Instagram · ${when(m.published)} · ${esc(m.caption)}<br>
-        ${m.views != null ? `<b>${m.views.toLocaleString()}</b> plays · reach ${m.reach} · avg watch ${m.ig_reels_avg_watch_time}s · ` : ""}${m.likes} likes · ${m.comments} comments${m.shares != null ? ` · ${m.shares} shares · ${m.saved} saves` : ""}</div></div>`).join("");
-    return `<h3 style="font:700 17px Georgia,serif;margin:18px 0 4px">${esc(p.name)}</h3>${yt}${ig}`;
+// One pie per Short: its views split by platform.
+function pie(parts) {
+  const total = parts.reduce((s, p) => s + p.v, 0);
+  if (!total) return `<svg viewBox="0 0 80 80" width="80" height="80"><circle cx="40" cy="40" r="34" fill="var(--line)"/></svg>`;
+  let a0 = -Math.PI / 2, paths = "";
+  for (const p of parts) {
+    if (!p.v) continue;
+    const a1 = a0 + (p.v / total) * Math.PI * 2;
+    if (p.v === total) { paths += `<circle cx="40" cy="40" r="34" fill="${p.c}"/>`; break; }
+    const big = a1 - a0 > Math.PI ? 1 : 0;
+    const x0 = 40 + 34 * Math.cos(a0), y0 = 40 + 34 * Math.sin(a0), x1 = 40 + 34 * Math.cos(a1), y1 = 40 + 34 * Math.sin(a1);
+    paths += `<path d="M40 40 L${x0.toFixed(2)} ${y0.toFixed(2)} A34 34 0 ${big} 1 ${x1.toFixed(2)} ${y1.toFixed(2)} Z" fill="${p.c}"/>`;
+    a0 = a1;
+  }
+  return `<svg viewBox="0 0 80 80" width="80" height="80" role="img" aria-label="Views by platform">${paths}</svg>`;
+}
+
+async function statsPage(res, d) {
+  const a = await analytics();
+  const rows = (a && a.rows) || [];
+  const shorts = new Map();
+  for (const r of rows) {
+    const key = r.short || r.video;
+    const s = shorts.get(key) || { name: key, page: r.page, posted: r.posted, by: {} };
+    s.by[r.platform] = (s.by[r.platform] || 0) + (Number(r.views) || 0);
+    shorts.set(key, s);
+  }
+  const list = [...shorts.values()].map((s) => ({ ...s, total: Object.values(s.by).reduce((x, y) => x + y, 0) }))
+    .sort((x, y) => y.total - x.total);
+  const max = Math.max(1, ...list.map((s) => s.total));
+  const fmt = (n) => Number(n).toLocaleString("en-US");
+  const legend = `<div class="legend">${PLAT.map(([n, c]) => `<span><i style="background:${c}"></i>${n}</span>`).join("")}</div>`;
+  const bars = list.map((s) => `<div class="bar"><div class="bl">${esc(s.name)}</div>
+      <div class="bt"><div class="bf" style="width:${((s.total / max) * 100).toFixed(1)}%"></div><span>${fmt(s.total)}</span></div></div>`).join("");
+  const pies = list.map((s) => {
+    const parts = PLAT.map(([n, c]) => ({ n, c, v: s.by[n] || 0 }));
+    const top = parts.slice().sort((x, y) => y.v - x.v)[0];
+    return `<div class="pie">${pie(parts)}<div><div class="t">${esc(s.name)}</div>
+      <div class="small">${esc(s.page)} · ${esc(s.posted)}</div>
+      <div class="small">${parts.map((p) => `${p.n}: ${fmt(p.v)}`).join(" · ")}</div>
+      ${top.v ? `<div class="small">Most views: <b>${top.n}</b></div>` : ""}</div></div>`;
   }).join("");
-  return `<h2 class="top" style="margin-top:28px">How they're doing</h2>
-    <p class="small">Updated ${esc(new Date(a.updated).toLocaleString("en-CA", { timeZone: "America/Vancouver", dateStyle: "medium", timeStyle: "short" }))} · YouTube watch data lags 1–3 days.</p>
-    ${(a.notes || []).map((n) => `<p class="small" style="color:#b3412f">${esc(n)}</p>`).join("")}${pages}`;
+  const learn = ((a && a.learnings) || []).map((l) => `<li>${esc(l.point)}<div class="small">${esc(l.evidence)}</div></li>`).join("");
+  const notes = ((a && a.notes) || []).map((n) => `<p class="small" style="color:#b3412f">${esc(n)}</p>`).join("");
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.status(200).send(`<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">
+<title>Almanac analytics</title><style>${CSS}</style></head><body><main class="list">
+<div class="top">The Almanac · Review</div>${tabs(d, "stats")}
+<h1>Analytics</h1><p class="sub">${a ? "Updated " + esc(new Date(a.updated).toLocaleString("en-CA", { timeZone: "America/Vancouver", dateStyle: "medium", timeStyle: "short" })) + " · refreshes every 2 hours" : "No numbers yet."}</p>
+${notes}
+<h2 class="top" style="margin-top:22px">Most views overall</h2>
+<div class="card">${bars || '<p class="small">No views yet.</p>'}</div>
+<h2 class="top" style="margin-top:22px">Views by platform, per Short</h2>
+${legend}<div class="card">${pies || '<p class="small">No views yet.</p>'}</div>
+<h2 class="top" style="margin-top:22px">How to improve</h2>
+<div class="card"><ol class="learn">${learn || "<li>Not enough data yet.</li>"}</ol></div>
+</main></body></html>`);
 }
 
-async function dashboard(res) {
+async function dashboard(res, d) {
   const open = await gh(`/issues?labels=approval&state=open&per_page=30`);
   const done = await gh(`/issues?labels=approval&state=closed&per_page=6`);
-  const a = await analytics();
   const item = (it, live) => {
     const key = ((it.body || "").match(/<!-- key:([a-f0-9]+) -->/) || [])[1];
     const head = ((it.body || "").match(/^## (.+?) — (\S+)/m) || []);
@@ -222,11 +259,10 @@ async function dashboard(res) {
   res.status(200).send(`<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">
 <title>Almanac reviews</title><style>${CSS}</style></head><body><main class="list">
-<div class="top">The Almanac · Review</div><h1>${open.length ? `${open.length} waiting` : "All caught up"}</h1>
+<div class="top">The Almanac · Review</div>${tabs(d, "")}<h1>${open.length ? `${open.length} waiting` : "All caught up"}</h1>
 <p class="sub">A new Short arrives early each morning.</p>
 ${open.map((it) => item(it, true)).join("") || `<p class="small">Nothing to review right now.</p>`}
 ${done.length ? `<h2 class="top" style="margin-top:28px">Recent</h2>${done.map((it) => item(it, false)).join("")}` : ""}
-${stats(a)}
 </main></body></html>`);
 }
 
@@ -243,7 +279,7 @@ module.exports = async (req, res) => {
         res.status(403).send("This dashboard link isn't valid.");
         return;
       }
-      return await dashboard(res);
+      return q.tab === "stats" ? await statsPage(res, String(q.d)) : await dashboard(res, String(q.d));
     }
     if (!i || !k) throw new Error("bad link");
     const issue = await gh(`/issues/${i}`);
