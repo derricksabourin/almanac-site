@@ -60,7 +60,7 @@ async function gh(path, opts = {}) {
     },
   });
   if (!r.ok) throw new Error(`GitHub ${r.status}`);
-  return r.json();
+  return r.status === 204 ? {} : r.json();
 }
 
 const esc = (s) =>
@@ -203,8 +203,22 @@ function pie(parts) {
   return `<svg viewBox="0 0 80 80" width="80" height="80" role="img" aria-label="Views by platform">${paths}</svg>`;
 }
 
+// GitHub sometimes skips scheduled runs. If the numbers are over 2.5 hours old when
+// someone opens the dashboard, ask GitHub to refresh them now (best effort).
+async function refreshIfStale(a) {
+  if (!a || !a.updated || Date.now() - new Date(a.updated) < 2.5 * 3600e3) return false;
+  try {
+    const runs = await gh(`/actions/workflows/analytics.yml/runs?per_page=1`);
+    const last = (runs.workflow_runs || [])[0];
+    if (last && (last.status !== "completed" || Date.now() - new Date(last.created_at) < 15 * 60e3)) return true;
+    await gh(`/actions/workflows/analytics.yml/dispatches`, { method: "POST", body: JSON.stringify({ ref: "main" }) });
+    return true;
+  } catch { return false; }
+}
+
 async function statsPage(res, d) {
   const a = await analytics();
+  const refreshing = await refreshIfStale(a);
   const rows = (a && a.rows) || [];
   const shorts = new Map();
   for (const r of rows) {
@@ -237,7 +251,7 @@ async function statsPage(res, d) {
 <meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">
 <title>Almanac analytics</title><style>${CSS}</style></head><body><main class="list">
 <div class="top">The Almanac · Review</div>${tabs(d, "stats")}
-<h1>Analytics</h1><p class="sub">${a ? "Updated " + esc(new Date(a.updated).toLocaleString("en-CA", { timeZone: "America/Vancouver", dateStyle: "medium", timeStyle: "short" })) + " · refreshes every 2 hours" : "No numbers yet."}</p>
+<h1>Analytics</h1><p class="sub">${a ? "Updated " + esc(new Date(a.updated).toLocaleString("en-CA", { timeZone: "America/Vancouver", dateStyle: "medium", timeStyle: "short" })) + (refreshing ? " · refreshing now, check back in a few minutes" : " · refreshes every 2 hours") : "No numbers yet."}</p>
 ${notes}
 <div class="card"><div class="small">Total views, all platforms</div>
 <div style="font:700 40px/1.1 Georgia,serif;font-variant-numeric:tabular-nums;margin:4px 0">${fmt(grand)}</div>
@@ -254,6 +268,7 @@ ${legend}<div class="card">${pies || '<p class="small">No views yet.</p>'}</div>
 // Where we are against the monetization plan (config/plan.yaml, via analytics.json).
 async function planPage(res, d) {
   const a = await analytics();
+  await refreshIfStale(a);
   const plan = (a && a.plan) || null;
   const fmt = (n) => Number(Math.round(n)).toLocaleString("en-US");
   const money = (n) => `${n < 0 ? "−" : ""}$${fmt(Math.abs(n))}`;
