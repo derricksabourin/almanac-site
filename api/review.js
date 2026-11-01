@@ -224,6 +224,8 @@ async function statsPage(res, d) {
       <div class="small">${parts.map((p) => `${p.n}: ${fmt(p.v)}`).join(" · ")}</div>
       ${top.v ? `<div class="small">Most views: <b>${top.n}</b></div>` : ""}</div></div>`;
   }).join("");
+  const grand = list.reduce((x, s) => x + s.total, 0);
+  const perPlat = PLAT.map(([n]) => [n, list.reduce((x, s) => x + (s.by[n] || 0), 0)]);
   const learn = ((a && a.learnings) || []).map((l) => `<li>${esc(l.point)}<div class="small">${esc(l.evidence)}</div></li>`).join("");
   const notes = ((a && a.notes) || []).map((n) => `<p class="small" style="color:#b3412f">${esc(n)}</p>`).join("");
   res.setHeader("Content-Type", "text/html; charset=utf-8");
@@ -233,6 +235,9 @@ async function statsPage(res, d) {
 <div class="top">The Almanac · Review</div>${tabs(d, "stats")}
 <h1>Analytics</h1><p class="sub">${a ? "Updated " + esc(new Date(a.updated).toLocaleString("en-CA", { timeZone: "America/Vancouver", dateStyle: "medium", timeStyle: "short" })) + " · refreshes every 2 hours" : "No numbers yet."}</p>
 ${notes}
+<div class="card"><div class="small">Total views, all platforms</div>
+<div style="font:700 40px/1.1 Georgia,serif;font-variant-numeric:tabular-nums;margin:4px 0">${fmt(grand)}</div>
+<div class="small">${perPlat.map(([n, v]) => `${n} ${fmt(v)}`).join(" · ")} · ${list.length} Shorts</div></div>
 <h2 class="top" style="margin-top:22px">Most views overall</h2>
 <div class="card">${bars || '<p class="small">No views yet.</p>'}</div>
 <h2 class="top" style="margin-top:22px">Views by platform, per Short</h2>
