@@ -1,5 +1,5 @@
 // /books — the bio link for every Almanac account: the real book behind each Short,
-// newest first, linked to Amazon with our Associates tag (AMAZON_TAG env var).
+// newest first, linked to Amazon with our Associates tag (almanac06-20; AMAZON_TAG env var overrides).
 // Reads state/books.json, which the studio appends to whenever a Short is posted.
 const REPO = process.env.GITHUB_REPO || "catrobert/get-rich-project";
 const PAGES = { grey_almanac: "Grey Almanac", fortune_almanac: "Fortune Almanac" };
@@ -10,7 +10,7 @@ function amazon(q, audible) {
   const u = new URL("https://www.amazon.com/s");
   u.searchParams.set("k", q);
   if (audible) u.searchParams.set("i", "audible");
-  if (process.env.AMAZON_TAG) u.searchParams.set("tag", process.env.AMAZON_TAG.trim());
+  u.searchParams.set("tag", (process.env.AMAZON_TAG || "almanac06-20").trim());   // Associates ID (not secret)
   return u.toString();
 }
 
