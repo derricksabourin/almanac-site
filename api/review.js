@@ -44,6 +44,9 @@ a{color:var(--brown)}.small{font-size:13px;color:var(--muted)}
 .bar{margin:10px 0}.bl{font-size:14px;margin-bottom:4px}.bt{display:flex;align-items:center;gap:8px}.bf{height:16px;min-width:2px;background:var(--brown);border-radius:4px}.bt span{font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
 .pie{display:flex;gap:14px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line)}.pie:last-child{border-bottom:0}.pie svg{flex:none}
 .legend{display:flex;gap:14px;font-size:13px;color:var(--muted);margin:6px 0}.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+.ms{padding:8px 0;border-bottom:1px solid var(--line)}.ms:last-child{border-bottom:0}.ms .bt{margin-top:6px}
+.pill{display:inline-block;font-size:12px;padding:2px 8px;border-radius:99px;background:var(--line);margin:4px 0}
+.t{width:100%;border-collapse:collapse;font-size:14px}.t td,.t th{padding:6px 4px;border-bottom:1px solid var(--line);text-align:left}.t .n{text-align:right;font-variant-numeric:tabular-nums}
 .learn{padding-left:20px;margin:0}.learn li{margin:0 0 12px}.list div.item{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:8px 0}.tag{display:inline-block;font-size:12px;padding:2px 8px;border-radius:99px;background:var(--line);margin-top:6px}`;
 
 async function gh(path, opts = {}) {
@@ -179,7 +182,7 @@ const PLAT = [["YouTube", "#b3412f"], ["Instagram", "#965C2A"], ["Facebook", "#4
 
 function tabs(d, tab) {
   const t = (id, label) => `<a href="/review?d=${encodeURIComponent(d)}${id ? "&tab=" + id : ""}" class="tab${tab === id ? " on" : ""}">${label}</a>`;
-  return `<nav class="tabs">${t("", "Review")}${t("stats", "Analytics")}</nav>`;
+  return `<nav class="tabs">${t("", "Review")}${t("stats", "Analytics")}${t("plan", "Plan")}</nav>`;
 }
 
 // One pie per Short: its views split by platform.
@@ -247,6 +250,97 @@ ${legend}<div class="card">${pies || '<p class="small">No views yet.</p>'}</div>
 </main></body></html>`);
 }
 
+// Where we are against the monetization plan (config/plan.yaml, via analytics.json).
+async function planPage(res, d) {
+  const a = await analytics();
+  const plan = (a && a.plan) || null;
+  const fmt = (n) => Number(Math.round(n)).toLocaleString("en-US");
+  const money = (n) => `${n < 0 ? "−" : ""}$${fmt(Math.abs(n))}`;
+  let body = '<p class="small">No numbers yet.</p>';
+  if (a && plan) {
+    const day = Math.max(1, Math.floor((Date.now() - new Date(plan.launch + "T00:00:00Z")) / 864e5) + 1);
+    const m = Math.min(12, Math.ceil(day / 30));
+    const rows = a.rows || [];
+    const total = rows.reduce((x, r) => x + (Number(r.views) || 0), 0);
+    const pace = (total / day) * 30;                 // views per 30 days at the current rate
+    const target = (k) => plan.views[k][m - 1];
+    const band = pace >= target("breakout") ? ["Ahead of Breakout", "#2f7d4f"] : pace >= target("base") ? ["Above Base", "#2f7d4f"]
+      : pace >= target("conservative") ? ["Between Conservative and Base", "#a07415"] : ["Below Conservative", "#b3412f"];
+    const max = Math.max(pace, target("breakout"));
+    const bar = (label, v, c) => `<div class="bar"><div class="bl">${label} <span class="small">${fmt(v)}</span></div>
+      <div class="bt"><div class="bf" style="width:${((v / max) * 100).toFixed(1)}%;background:${c}"></div></div></div>`;
+    const earned = (plan.earned || []).reduce((x, e) => x + (Number(e.usd) || 0), 0);
+    const months = day / 30;
+    const spent = (a.spent || 0) + plan.fixed_monthly_usd * Math.ceil(months);
+    const net = earned - spent;
+    const planNet = (k) => plan.net[k][m - 1];
+    // followers per page and per platform
+    const fol = a.followers || {};
+    const pageTotals = Object.entries(fol).map(([name, f]) => [name, Object.values(f).reduce((x, y) => x + (Number(y) || 0), 0), f]);
+    const ytMax = Math.max(0, ...Object.values(fol).map((f) => Number(f.YouTube) || 0));
+    const fbMax = Math.max(0, ...Object.values(fol).map((f) => Number(f.Facebook) || 0));
+    const folMax = Math.max(0, ...pageTotals.map((p) => p[1]));
+    // Day 30 check: median YouTube views per Short per page, and the best Short
+    const yt = rows.filter((r) => r.platform === "YouTube");
+    const med = (xs) => { const s = [...xs].sort((p, q) => p - q); return s.length ? s[Math.floor((s.length - 1) / 2)] : 0; };
+    const perPage = [...new Set(yt.map((r) => r.page))].map((pg) => [pg, med(yt.filter((r) => r.page === pg).map((r) => Number(r.views) || 0))]);
+    const best = Math.max(0, ...yt.map((r) => Number(r.views) || 0));
+    const metric = { youtube_subs: ytMax, followers: folMax, facebook: fbMax };
+    const ms = (plan.milestones || []).map((x) => {
+      let v = null, done = false, note = "";
+      if (x.metric) { v = metric[x.metric] || 0; done = v >= x.target; note = `${fmt(v)} of ${fmt(x.target)}`; }
+      else if (x.name.startsWith("Day 30")) { done = perPage.every((p) => p[1] >= 1000) && best >= 10000; note = perPage.map((p) => `${p[0]}: median ${fmt(p[1])}`).join(" · ") + ` · best ${fmt(best)}`; }
+      else if (x.name.startsWith("Day 90")) { note = day < 90 ? `in ${90 - day} days` : ""; }
+      const pct = v != null ? Math.min(100, (v / x.target) * 100) : null;
+      return `<div class="ms"><div><b>${done ? "✓ " : ""}${esc(x.name)}</b> <span class="small">${esc(x.detail)}</span></div>
+        ${pct != null ? `<div class="bt"><div class="bf" style="width:${Math.max(1, pct).toFixed(1)}%"></div></div>` : ""}
+        ${note ? `<div class="small">${esc(note)}</div>` : ""}</div>`;
+    }).join("");
+    // platform mix vs plan
+    const byPlat = {};
+    rows.forEach((r) => { byPlat[r.platform] = (byPlat[r.platform] || 0) + (Number(r.views) || 0); });
+    const plats = [...new Set([...Object.keys(plan.platform_split || {}), ...Object.keys(byPlat)])];
+    const mix = plats.map((p) => `<tr><td>${esc(p)}</td><td class="n">${total ? Math.round(((byPlat[p] || 0) / total) * 100) : 0}%</td><td class="n">${(plan.platform_split || {})[p] ?? "—"}${(plan.platform_split || {})[p] != null ? "%" : ""}</td></tr>`).join("");
+    const levers = (plan.levers || []).map((l) => `<li><b>${esc(l.name)}</b> <span class="pill">${esc(l.status)}</span> <span class="small">${esc(l.when)}</span><div class="small">${esc(l.detail)}</div></li>`).join("");
+    const advice = (a.money || []).map((l) => `<li>${esc(l.point)}<div class="small">${esc(l.evidence)}</div></li>`).join("");
+    body = `<p class="sub">Day ${day} of the plan · month ${m} of 12 · launched ${esc(plan.launch)}</p>
+<div class="card"><div class="small">Views, month ${m} pace (all pages, all platforms)</div>
+<div style="font:700 34px/1.1 Georgia,serif;margin:4px 0">${fmt(pace)} <span class="small">views / 30 days</span></div>
+<div class="pill" style="background:${band[1]};color:#fff">${band[0]}</div>
+${bar("Our pace", pace, "var(--brown)")}${bar("Breakout plan", target("breakout"), "#9bb7d4")}${bar("Base plan", target("base"), "#9bb7d4")}${bar("Conservative plan", target("conservative"), "#9bb7d4")}
+<div class="small">${fmt(total)} views so far in ${day} day${day === 1 ? "" : "s"}. Early days swing a lot; read the trend weekly.</div></div>
+
+<h2 class="top" style="margin-top:22px">Money</h2>
+<div class="card"><table class="t"><tr><td>Spent so far</td><td class="n">${money(spent)}</td></tr>
+<tr><td>Earned so far</td><td class="n">${money(earned)}</td></tr>
+<tr><td><b>Net</b></td><td class="n"><b>${money(net)}</b></td></tr>
+<tr><td>Plan at month ${m}: Base</td><td class="n">${money(planNet("base"))}</td></tr>
+<tr><td>Plan at month ${m}: Conservative</td><td class="n">${money(planNet("conservative"))}</td></tr></table>
+<div class="small">Break-even target: month ${plan.break_even_month.base} (Base). It only happens if sponsored Shorts start around month 7, which needs about 5,000 followers per page.</div></div>
+
+<h2 class="top" style="margin-top:22px">Followers</h2>
+<div class="card">${pageTotals.map(([n, t, f]) => `<div class="ms"><b>${esc(n)}</b> <span class="small">${fmt(t)} total · ${Object.entries(f).map(([k, v]) => `${k} ${fmt(v)}`).join(" · ")}</span></div>`).join("") || '<p class="small">No follower counts yet.</p>'}</div>
+
+<h2 class="top" style="margin-top:22px">Milestones</h2>
+<div class="card">${ms}</div>
+
+<h2 class="top" style="margin-top:22px">Where views come from vs the plan</h2>
+<div class="card"><table class="t"><tr><th>Platform</th><th class="n">Us</th><th class="n">Plan</th></tr>${mix}</table></div>
+
+<h2 class="top" style="margin-top:22px">What to do next to make money</h2>
+<div class="card"><ol class="learn">${advice || "<li>Written daily once there are enough numbers.</li>"}</ol></div>
+
+<h2 class="top" style="margin-top:22px">Money levers from the plan</h2>
+<div class="card"><ul class="learn">${levers}</ul></div>`;
+  }
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.status(200).send(`<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">
+<title>Almanac plan</title><style>${CSS}</style></head><body><main class="list">
+<div class="top">The Almanac · Review</div>${tabs(d, "plan")}<h1>The plan</h1>${body}
+</main></body></html>`);
+}
+
 async function dashboard(res, d) {
   const open = await gh(`/issues?labels=approval&state=open&per_page=30`);
   const done = await gh(`/issues?labels=approval&state=closed&per_page=6`);
@@ -284,6 +378,7 @@ module.exports = async (req, res) => {
         res.status(403).send("This dashboard link isn't valid.");
         return;
       }
+      if (q.tab === "plan") return await planPage(res, String(q.d));
       return q.tab === "stats" ? await statsPage(res, String(q.d)) : await dashboard(res, String(q.d));
     }
     if (!i || !k) throw new Error("bad link");
