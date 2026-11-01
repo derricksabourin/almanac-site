@@ -254,6 +254,26 @@ module.exports = async (req, res) => {
       return;
     }
 
+    // ?v=1 plays the video straight from the GitHub release when it wasn't copied to
+    // public storage: a short-lived download link, so no GitHub login is needed.
+    if (q.v !== undefined) {
+      const tag = (body.match(/tag:(short-[a-z_]+-[0-9-]+)/) || [])[1];
+      if (!tag) { res.status(404).send("No video for this Short."); return; }
+      const rel = await gh(`/releases/tags/${tag}`);
+      const asset = (rel.assets || []).find((a) => a.name === "short.mp4");
+      if (!asset) { res.status(404).send("No video for this Short."); return; }
+      const r = await fetch(`https://api.github.com/repos/${REPO}/releases/assets/${asset.id}`, {
+        redirect: "manual",
+        headers: { Authorization: `Bearer ${process.env.GITHUB_TOKEN}`, Accept: "application/octet-stream", "User-Agent": "almanac-review" },
+      });
+      const loc = r.headers.get("location");
+      if (!loc) { res.status(502).send("Couldn't get the video from GitHub."); return; }
+      res.setHeader("Cache-Control", "no-store");
+      res.writeHead(302, { Location: loc });
+      res.end();
+      return;
+    }
+
     if (req.method === "POST") {
       const action = String(q.action || "");
       const notes = String(q.notes || "").trim();
@@ -276,7 +296,7 @@ module.exports = async (req, res) => {
     res.status(200).send(page({
       title: issue.title.replace(/^(\[TEST[^\]]*\]\s*)?Approve:\s*/, "").replace(/^.*? — /, ""),
       show: head[1] || "", date: head[2] || "",
-      video: (body.match(/<!-- video:(\S+) -->/) || [])[1],
+      video: (body.match(/<!-- video:(\S+) -->/) || [])[1] || `/review?i=${i}&k=${k}&v=1`,
       thumb: (body.match(/<!-- thumb:(\S+) -->/) || [])[1],
       watch: (body.match(/Watch:\*\*\s*(\S+)/) || [])[1] || issue.html_url,
       script: section(body, "Script"), notes: section(body, "Minor fact-check notes"), caption: section(body, "Caption"),
