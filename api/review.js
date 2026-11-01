@@ -38,7 +38,7 @@ a{color:var(--brown)}.small{font-size:13px;color:var(--muted)}
 .msg.me{background:var(--blue);color:#10263a;margin-left:auto;border-bottom-right-radius:4px}
 .msg.bot{background:var(--card);border:1px solid var(--line);border-bottom-left-radius:4px}
 .msg ul{padding-left:18px;margin:6px 0}.msg del{opacity:.6}.who{font-size:11px;color:var(--muted);margin-bottom:2px}
-.list .t{font:700 17px/1.3 Georgia,serif}.tag{display:inline-block;font-size:12px;padding:2px 8px;border-radius:99px;background:var(--line);margin-top:6px}`;
+.list .t{font:700 17px/1.3 Georgia,serif}.list div.item{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:8px 0}.tag{display:inline-block;font-size:12px;padding:2px 8px;border-radius:99px;background:var(--line);margin-top:6px}`;
 
 async function gh(path, opts = {}) {
   const r = await fetch(`https://api.github.com/repos/${REPO}${path}`, {
@@ -160,9 +160,54 @@ ${caption ? `<details><summary>Caption</summary><p class="small">${esc(caption).
 }
 
 
+async function analytics() {
+  try {
+    const r = await fetch(`https://api.github.com/repos/${REPO}/contents/state/analytics.json`, {
+      headers: { Authorization: `Bearer ${process.env.GITHUB_TOKEN}`, Accept: "application/vnd.github.raw+json", "User-Agent": "almanac-review" },
+    });
+    return r.ok ? await r.json() : null;
+  } catch { return null; }
+}
+
+// Retention curve as a small line chart; the red tick is where the most people leave.
+function spark(curve, worst, seconds) {
+  if (!curve || curve.length < 2) return "";
+  const W = 120, H = 34, top = Math.max(1, ...curve.map((p) => p[1]));
+  const pts = curve.map(([x, y]) => `${(x * W).toFixed(1)},${(H - (y / top) * H).toFixed(1)}`).join(" ");
+  const wx = worst != null && seconds ? ((worst / seconds) * W).toFixed(1) : null;
+  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="display:block;margin-top:6px" aria-label="Audience retention">
+    <polyline points="${pts}" fill="none" stroke="var(--brown)" stroke-width="1.6"/>
+    ${wx ? `<line x1="${wx}" x2="${wx}" y1="0" y2="${H}" stroke="#b3412f" stroke-width="1" stroke-dasharray="2 2"/>` : ""}</svg>`;
+}
+
+function stats(a) {
+  if (!a) return "";
+  const pct = (x) => (x == null ? "–" : `${Math.round(x * 100)}%`);
+  const when = (iso) => new Date(iso).toLocaleDateString("en-CA", { month: "short", day: "numeric" });
+  const pages = Object.values(a.pages || {}).map((p) => {
+    const yt = [...p.youtube].sort((x, y) => y.published.localeCompare(x.published)).map((v) => {
+      const d = v.dropoff || {};
+      return `<div class="item"><div class="t" style="font-size:15px">${esc(v.title)}</div>
+        <div class="small">YouTube · ${when(v.published)} · <b>${v.views.toLocaleString()}</b> views · ${v.likes} likes · ${v.comments} comments
+        ${v.avg_percent != null ? `<br>Watched on average: <b>${v.avg_percent}%</b> (${v.avg_seconds}s of ${v.seconds}s)` : ""}
+        ${d.half != null ? `<br>Still watching at 3s: ${pct(d.at_3s)} · halfway: ${pct(d.half)} · end: ${pct(d.end)}` : ""}
+        ${d.worst_second != null ? `<br>Biggest drop: around <b>${d.worst_second}s</b>` : ""}</div>
+        ${spark(v.curve, d.worst_second, v.seconds)}</div>`;
+    }).join("");
+    const ig = [...p.instagram].sort((x, y) => y.published.localeCompare(x.published)).map((m) =>
+      `<div class="item"><div class="small">Instagram · ${when(m.published)} · ${esc(m.caption)}<br>
+        ${m.views != null ? `<b>${m.views.toLocaleString()}</b> plays · reach ${m.reach} · avg watch ${m.ig_reels_avg_watch_time}s · ` : ""}${m.likes} likes · ${m.comments} comments${m.shares != null ? ` · ${m.shares} shares · ${m.saved} saves` : ""}</div></div>`).join("");
+    return `<h3 style="font:700 17px Georgia,serif;margin:18px 0 4px">${esc(p.name)}</h3>${yt}${ig}`;
+  }).join("");
+  return `<h2 class="top" style="margin-top:28px">How they're doing</h2>
+    <p class="small">Updated ${esc(new Date(a.updated).toLocaleString("en-CA", { timeZone: "America/Vancouver", dateStyle: "medium", timeStyle: "short" }))} · YouTube watch data lags 1–3 days.</p>
+    ${(a.notes || []).map((n) => `<p class="small" style="color:#b3412f">${esc(n)}</p>`).join("")}${pages}`;
+}
+
 async function dashboard(res) {
   const open = await gh(`/issues?labels=approval&state=open&per_page=30`);
   const done = await gh(`/issues?labels=approval&state=closed&per_page=6`);
+  const a = await analytics();
   const item = (it, live) => {
     const key = ((it.body || "").match(/<!-- key:([a-f0-9]+) -->/) || [])[1];
     const head = ((it.body || "").match(/^## (.+?) — (\S+)/m) || []);
@@ -181,6 +226,7 @@ async function dashboard(res) {
 <p class="sub">A new Short arrives early each morning.</p>
 ${open.map((it) => item(it, true)).join("") || `<p class="small">Nothing to review right now.</p>`}
 ${done.length ? `<h2 class="top" style="margin-top:28px">Recent</h2>${done.map((it) => item(it, false)).join("")}` : ""}
+${stats(a)}
 </main></body></html>`);
 }
 
