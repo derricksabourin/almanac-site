@@ -179,7 +179,7 @@ async function analytics() {
   } catch { return null; }
 }
 
-const PLAT = [["YouTube", "#b3412f"], ["Instagram", "#965C2A"], ["Facebook", "#4f86b8"], ["Threads", "#4a4a4a"]];
+const PLAT = [["YouTube", "#b3412f"], ["Instagram", "#965C2A"], ["Facebook", "#4f86b8"], ["Threads", "#4a4a4a"], ["TikTok", "#3a8f8a"]];
 
 function tabs(d, tab) {
   const t = (id, label) => `<a href="/review?d=${encodeURIComponent(d)}${id ? "&tab=" + id : ""}" class="tab${tab === id ? " on" : ""}">${label}</a>`;
