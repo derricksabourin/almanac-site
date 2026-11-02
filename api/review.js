@@ -184,7 +184,7 @@ async function analytics() {
   } catch { return null; }
 }
 
-const PLAT = [["YouTube", "#b3412f"], ["Instagram", "#965C2A"], ["Facebook", "#4f86b8"], ["Threads", "#4a4a4a"], ["TikTok", "#3a8f8a"]];
+const PLAT = [["YouTube", "#d0453a"], ["Instagram", "#c2408a"], ["TikTok", "#1fa596"], ["Threads", "#8a8a8a"], ["Facebook", "#3d73d6"]];
 
 function tabs(d, tab) {
   const t = (id, label) => `<a href="/review?d=${encodeURIComponent(d)}${id ? "&tab=" + id : ""}" class="tab${tab === id ? " on" : ""}">${label}</a>`;
@@ -245,73 +245,178 @@ function followerGains(hist) {
   });
 }
 
+async function stateFile(name) {
+  try {
+    const r = await fetch(`https://api.github.com/repos/${REPO}/contents/state/${name}`, {
+      headers: { Authorization: `Bearer ${process.env.GITHUB_TOKEN}`, Accept: "application/vnd.github.raw+json", "User-Agent": "almanac-review" },
+    });
+    return r.ok ? await r.json() : null;
+  } catch { return null; }
+}
+
+const SCSS = `
+main.wide{max-width:1120px}
+.av-grid6{display:grid;gap:8px;grid-template-columns:repeat(auto-fit,minmax(105px,1fr));margin:10px 0}
+.av-tile{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+.av-tile .l{font-size:13px;color:var(--muted);display:flex;align-items:center;gap:6px}
+.av-tile .v{font:400 clamp(22px,4vw,30px)/1.15 Georgia,serif;font-variant-numeric:tabular-nums;margin-top:4px}
+.av-sw{width:10px;height:10px;border-radius:2px;display:inline-block;flex:none}
+.av-h{font:600 18px/1.3 Georgia,serif;margin:0 0 2px}.av-note{font-size:13px;color:var(--muted);margin:0 0 10px}
+.av-legend{display:flex;flex-wrap:wrap;gap:14px;font-size:13px;color:var(--muted);margin:0 0 10px}.av-legend span{display:inline-flex;align-items:center;gap:6px}
+.av-row{margin:12px 0;cursor:pointer}.av-row .n{font-size:14px;margin-bottom:4px}.av-row.sel .n{font-weight:700}
+.av-stack{display:flex;align-items:center;gap:8px}.av-segs{display:flex;height:20px;border-radius:4px;overflow:hidden;min-width:2px}
+.av-segs i{display:block;height:100%}.av-row:hover .av-segs{filter:brightness(1.08)}
+.av-stack span{font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
+.av-two{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr))}
+.av-kpis{display:grid;gap:8px;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));margin:12px 0}
+.av-kpi{border:1px solid var(--line);border-radius:10px;padding:8px 10px}.av-kpi .l{font-size:12px;color:var(--muted)}.av-kpi .v{font:400 22px/1.2 Georgia,serif;font-variant-numeric:tabular-nums}
+select.av-pick{font:inherit;font-size:15px;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink);max-width:100%}
+.av-split{display:grid;grid-template-columns:auto 1fr;gap:6px 10px;align-items:center;font-size:14px}.av-split .b{display:flex;align-items:center;gap:8px}.av-split .b i{height:18px;border-radius:4px;display:block;min-width:2px}.av-split .b span{font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
+.av-chart{position:relative}.av-chart svg text{fill:var(--muted);font-size:12px}
+.av-tip{position:fixed;pointer-events:none;background:var(--card);border:1px solid var(--line);border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,.18);padding:6px 10px;font-size:13px;z-index:9;white-space:nowrap}
+.av-tip .t{color:var(--muted)}
+.learn li{margin:8px 0}
+`;
+
 async function statsPage(res, d) {
-  const [a, fhist] = await Promise.all([analytics(), followersHistory()]);
+  const [a, fhist, vhist] = await Promise.all([analytics(), followersHistory(), stateFile("views_history.json")]);
   const refreshing = await refreshIfStale(a);
   const rows = (a && a.rows) || [];
+  const P = PLAT.map(([n]) => n);
   const shorts = new Map();
   for (const r of rows) {
     const key = r.short || r.video;
-    const s = shorts.get(key) || { name: key, page: r.page, posted: r.posted, by: {}, likes: 0, comments: 0, shares: 0, saves: 0 };
+    const s = shorts.get(key) || { name: key, page: r.page, posted: r.posted, by: {}, likes: 0, comments: 0, shares: 0, saves: 0, yt: null, drop: null, subs: null, links: {} };
     s.by[r.platform] = (s.by[r.platform] || 0) + (Number(r.views) || 0);
     for (const k of ["likes", "comments", "shares", "saves"]) s[k] += Number(r[k]) || 0;
+    if (r.platform === "YouTube") { s.yt = r.avg_percent; s.drop = r.drop_second; s.subs = r.subs_gained ?? null; }
+    if (r.link) s.links[r.platform] = r.link;
+    if (r.posted && (!s.posted || r.posted < s.posted)) s.posted = r.posted;
     shorts.set(key, s);
   }
-  const list = [...shorts.values()].map((s) => ({ ...s, total: Object.values(s.by).reduce((x, y) => x + y, 0) }))
-    .sort((x, y) => y.total - x.total);
-  const max = Math.max(1, ...list.map((s) => s.total));
-  const fmt = (n) => Number(n).toLocaleString("en-US");
-  const legend = `<div class="legend">${PLAT.map(([n, c]) => `<span><i style="background:${c}"></i>${n}</span>`).join("")}</div>`;
-  const bars = list.map((s) => `<div class="bar"><div class="bl">${esc(s.name)}</div>
-      <div class="bt"><div class="bf" style="width:${((s.total / max) * 100).toFixed(1)}%"></div><span>${fmt(s.total)}</span></div></div>`).join("");
-  const pies = list.map((s) => {
-    const parts = PLAT.map(([n, c]) => ({ n, c, v: s.by[n] || 0 }));
-    const top = parts.slice().sort((x, y) => y.v - x.v)[0];
-    return `<div class="pie">${pie(parts)}<div><div class="t">${esc(s.name)}</div>
-      <div class="small">${esc(s.page)} · ${esc(s.posted)}</div>
-      <div class="small">${parts.map((p) => `${p.n}: ${fmt(p.v)}`).join(" · ")}</div>
-      <div class="small">❤ ${fmt(s.likes)} likes · 💬 ${fmt(s.comments)} comments · ↗ ${fmt(s.shares)} shares${s.saves ? ` · 🔖 ${fmt(s.saves)} saves` : ""}</div>
-      ${top.v ? `<div class="small">Most views: <b>${top.n}</b></div>` : ""}</div></div>`;
-  }).join("");
-  const grand = list.reduce((x, s) => x + s.total, 0);
-  const perPlat = PLAT.map(([n]) => [n, list.reduce((x, s) => x + (s.by[n] || 0), 0)]);
-  const sum = (k) => list.reduce((x, s) => x + s[k], 0);
-  const gains = followerGains(fhist.length ? fhist : Object.entries((a && a.followers) || {}).flatMap(([page, per]) =>
-    Object.entries(per).filter(([, n]) => n != null).map(([platform, followers]) => ({ at: a.updated, page, platform, followers }))));
-  const folTotal = gains.reduce((x, g) => x + g.followers, 0), folNew = gains.reduce((x, g) => x + g.gained, 0);
+  const list = [...shorts.values()].map((s) => ({ ...s, total: Object.values(s.by).reduce((x, y) => x + y, 0) })).sort((x, y) => y.total - x.total);
+  // Views over time per Short (all platforms added up at each check).
+  const nameOf = new Map(rows.map((r) => [r.platform + "|" + r.video, r.short || r.video]));
+  const series = {};
+  for (const h of vhist || []) {
+    const s = h.short || nameOf.get(h.platform + "|" + h.video);
+    if (!s) continue;
+    const m = (series[s] ||= {});
+    m[h.at] = (m[h.at] || 0) + (Number(h.views) || 0);
+  }
+  const growth = Object.fromEntries(Object.entries(series).map(([s, m]) => [s, Object.entries(m).sort().map(([at, v]) => [at, v])]));
+  const fmt = (n) => Number(n || 0).toLocaleString("en-US");
   const signed = (n) => (n > 0 ? "+" : "") + fmt(n);
-  const stat = (label, v) => `<div class="stat"><div class="small">${label}</div><div class="sv">${v}</div></div>`;
-  const engagement = `<div class="card stats">${stat("Followers", fmt(folTotal))}${stat("New followers, 24h", signed(folNew))}${stat("Likes", fmt(sum("likes")))}${stat("Comments", fmt(sum("comments")))}${stat("Shares", fmt(sum("shares")))}${stat("Saves (Instagram)", fmt(sum("saves")))}</div>`;
+  const sum = (k) => list.reduce((x, s) => x + s[k], 0);
+  const grand = sum("total");
+  const per = Object.fromEntries(P.map((n) => [n, list.reduce((x, s) => x + (s.by[n] || 0), 0)]));
+  const gains = followerGains(fhist.length ? fhist : Object.entries((a && a.followers) || {}).flatMap(([page, perP]) =>
+    Object.entries(perP).filter(([, n]) => n != null).map(([platform, followers]) => ({ at: a.updated, page, platform, followers }))));
+  const folTotal = gains.reduce((x, g) => x + g.followers, 0), folNew = gains.reduce((x, g) => x + g.gained, 0);
+  const color = Object.fromEntries(PLAT);
+  const sw = (n) => `<i class="av-sw" style="background:${color[n]}"></i>`;
+  const tile = (label, v, n) => `<div class="av-tile"><div class="l">${n ? sw(n) : ""}${label}</div><div class="v">${v}</div></div>`;
+  const lead = list[0];
+  const tt = grand ? Math.round((per.TikTok / grand) * 100) : 0;
+  const max = Math.max(1, ...list.map((s) => s.total));
+  const bars = list.map((s, i) => `<div class="av-row${i === 0 ? " sel" : ""}" data-i="${i}"><div class="n">${esc(s.name)} <span class="small">· ${esc(s.page)}</span></div>
+    <div class="av-stack"><div class="av-segs" style="width:${((s.total / max) * 82).toFixed(1)}%">${P.filter((n) => s.by[n]).map((n) =>
+      `<i style="width:${((s.by[n] / s.total) * 100).toFixed(2)}%;background:${color[n]}" data-tip="${esc(n)}: ${fmt(s.by[n])} views"></i>`).join("")}</div><span>${fmt(s.total)}</span></div></div>`).join("");
   const pagesF = [...new Set(gains.map((g) => g.page))].sort();
-  const folTable = `<div class="card"><table class="ft"><thead><tr><th>Page</th><th>Platform</th><th class="n">Followers</th><th class="n">New (24h)</th></tr></thead><tbody>${
+  const folTable = `<table class="ft"><thead><tr><th>Page</th><th>Platform</th><th class="n">Followers</th><th class="n">New (24h)</th></tr></thead><tbody>${
     pagesF.map((p) => {
       const g = gains.filter((x) => x.page === p).sort((x, y) => y.followers - x.followers);
       const t = g.reduce((x, y) => x + y.followers, 0), n = g.reduce((x, y) => x + y.gained, 0);
-      return g.map((x) => `<tr><td>${esc(p)}</td><td>${esc(x.platform)}</td><td class="n">${fmt(x.followers)}</td><td class="n">${signed(x.gained)}</td></tr>`).join("")
+      return g.map((x) => `<tr><td>${esc(p)}</td><td>${sw(x.platform)} ${esc(x.platform)}</td><td class="n">${fmt(x.followers)}</td><td class="n">${signed(x.gained)}</td></tr>`).join("")
         + `<tr class="tot"><td>${esc(p)}</td><td>All platforms</td><td class="n">${fmt(t)}</td><td class="n">${signed(n)}</td></tr>`;
-    }).join("")}</tbody></table>
-<p class="small" style="margin:8px 0 0">YouTube shares and subscribers arrive 2–3 days late; Facebook reports views only.</p></div>`;
+    }).join("")}</tbody></table>`;
   const learn = ((a && a.learnings) || []).map((l) => `<li>${esc(l.point)}<div class="small">${esc(l.evidence)}</div></li>`).join("");
   const notes = ((a && a.notes) || []).map((n) => `<p class="small" style="color:#b3412f">${esc(n)}</p>`).join("");
+  const data = JSON.stringify({ P, color, list: list.map(({ links, ...s }) => s), growth }).replace(/</g, "\\u003c");
   res.setHeader("Content-Type", "text/html; charset=utf-8");
   res.status(200).send(`<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">
-<title>Almanac analytics</title><style>${CSS}</style></head><body><main class="list">
+<title>Almanac analytics</title><style>${CSS}${SCSS}</style></head><body><main class="list wide">
 <div class="top">The Almanac · Review</div>${tabs(d, "stats")}
-<h1>Analytics</h1><p class="sub">${a ? "Updated " + esc(new Date(a.updated).toLocaleString("en-CA", { timeZone: "America/Vancouver", dateStyle: "medium", timeStyle: "short" })) + (refreshing ? " · refreshing now, check back in a few minutes" : " · refreshes every hour") : "No numbers yet."}</p>
+<h1>Analytics</h1>
+${lead ? `<p style="margin:4px 0"><b>${esc(lead.name)}</b> leads with <b>${fmt(lead.total)}</b> views; TikTok brings <b>${tt}%</b> of all views. Followers: <b>${fmt(folTotal)}</b>, <b>${signed(folNew)}</b> in the last 24 hours.</p>` : ""}
+<p class="sub">${a ? "Updated " + esc(new Date(a.updated).toLocaleString("en-CA", { timeZone: "America/Vancouver", dateStyle: "medium", timeStyle: "short" })) + (refreshing ? " · refreshing now, check back in a few minutes" : " · refreshes every hour") : "No numbers yet."} · ${list.length} Shorts</p>
 ${notes}
-<div class="card"><div class="small">Total views, all platforms</div>
-<div style="font:700 40px/1.1 Georgia,serif;font-variant-numeric:tabular-nums;margin:4px 0">${fmt(grand)}</div>
-<div class="small">${perPlat.map(([n, v]) => `${n} ${fmt(v)}`).join(" · ")} · ${list.length} Shorts</div></div>
-${engagement}
-<h2 class="top" style="margin-top:22px">Followers</h2>
-${folTable}
-<h2 class="top" style="margin-top:22px">Most views overall</h2>
-<div class="card">${bars || '<p class="small">No views yet.</p>'}</div>
-<h2 class="top" style="margin-top:22px">Views by platform, per Short</h2>
-${legend}<div class="card">${pies || '<p class="small">No views yet.</p>'}</div>
-<h2 class="top" style="margin-top:22px">How to improve</h2>
-<div class="card"><ol class="learn">${learn || "<li>Not enough data yet.</li>"}</ol></div>
+<div class="av-grid6">${tile("All platforms", fmt(grand))}${P.map((n) => tile(n, fmt(per[n]), n)).join("")}</div>
+<div class="av-grid6">${tile("New followers, 24h", signed(folNew))}${tile("Followers", fmt(folTotal))}${tile("Likes", fmt(sum("likes")))}${tile("Comments", fmt(sum("comments")))}${tile("Shares", fmt(sum("shares")))}${tile("Saves (Instagram)", fmt(sum("saves")))}</div>
+
+<div class="card"><div class="av-h">Every Short, views by platform</div>
+<p class="av-note">Total views per Short on one shared scale, split by platform. Tap a Short to open it below.</p>
+<div class="av-legend">${P.map((n) => `<span>${sw(n)}${n}</span>`).join("")}</div>
+${bars || '<p class="small">No views yet.</p>'}</div>
+
+<div class="card" id="short"><div class="av-h">One Short up close</div>
+<select class="av-pick" aria-label="Short">${list.map((s, i) => `<option value="${i}">${esc(s.name)} (${esc(s.page)})</option>`).join("")}</select>
+<span class="small" id="av-meta"></span>
+<div class="av-kpis" id="av-kpis"></div>
+<div class="av-two">
+  <div><div class="av-h" style="font-size:16px">Views by platform</div><p class="av-note">Where this Short's views came from.</p><div class="av-split" id="av-split"></div></div>
+  <div><div class="av-h" style="font-size:16px">Views over time</div><p class="av-note">All platforms added up at each hourly check.</p><div class="av-chart" id="av-growth"></div></div>
+</div></div>
+
+<div class="av-two">
+<div class="card"><div class="av-h">Followers by page and platform</div>
+<p class="av-note">New = gained in the last 24 hours. YouTube shares and subscribers arrive 2–3 days late; Facebook reports views only.</p>${folTable}</div>
+<div class="card"><div class="av-h">How to improve</div><p class="av-note">Written by Claude once a day from these numbers.</p><ol class="learn">${learn || "<li>Not enough data yet.</li>"}</ol></div>
+</div>
+<div class="av-tip" hidden></div>
+<script>
+const D = ${data};
+const fmt = (n) => Number(n || 0).toLocaleString('en-US');
+const tip = document.querySelector('.av-tip');
+const showTip = (e, html) => { tip.innerHTML = html; tip.hidden = false; const w = tip.offsetWidth; tip.style.left = Math.min(innerWidth - w - 8, e.clientX + 12) + 'px'; tip.style.top = (e.clientY + 14) + 'px'; };
+document.querySelectorAll('[data-tip]').forEach((el) => { el.addEventListener('mousemove', (e) => showTip(e, el.dataset.tip.replace(/&/g,'&amp;').replace(/</g,'&lt;'))); el.addEventListener('mouseleave', () => tip.hidden = true); });
+const sel = document.querySelector('.av-pick');
+const kpi = (l, v) => '<div class="av-kpi"><div class="l">' + l + '</div><div class="v">' + v + '</div></div>';
+function show(i) {
+  const s = D.list[i]; if (!s) return;
+  sel.value = i;
+  document.querySelectorAll('.av-row').forEach((r) => r.classList.toggle('sel', +r.dataset.i === +i));
+  document.getElementById('av-meta').textContent = ' ' + s.page + (s.posted ? ' · posted ' + new Date(s.posted + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '');
+  const eng = s.total ? ((s.likes + s.comments + s.shares) / s.total * 100).toFixed(1) + '%' : '—';
+  document.getElementById('av-kpis').innerHTML = kpi('Views', fmt(s.total)) + kpi('Likes', fmt(s.likes)) + kpi('Comments', fmt(s.comments)) + kpi('Shares', fmt(s.shares))
+    + kpi('Saves (Instagram)', fmt(s.saves)) + kpi('Engagement', eng) + kpi('YouTube % watched', s.yt == null ? '—' : Math.round(s.yt) + '%')
+    + kpi('YouTube drop-off at', s.drop == null ? '—' : Math.round(s.drop) + 's') + kpi('YouTube subscribers gained', s.subs == null ? '—' : fmt(s.subs));
+  const parts = D.P.map((p) => [p, s.by[p] || 0]).filter((x) => x[1] > 0).sort((a, b) => b[1] - a[1]);
+  const m = Math.max(1, ...parts.map((x) => x[1]));
+  document.getElementById('av-split').innerHTML = parts.map(([p, v]) => '<div>' + p + '</div><div class="b"><i style="width:' + (v / m * 78) + '%;background:' + D.color[p] + '"></i><span>' + fmt(v) + ' · ' + Math.round(v / s.total * 100) + '%</span></div>').join('') || '<p class="small">No views yet.</p>';
+  drawGrowth(D.growth[s.name] || []);
+}
+function drawGrowth(pts) {
+  const el = document.getElementById('av-growth');
+  if (pts.length < 2) { el.innerHTML = '<p class="small">Not enough hourly checks yet for a line.</p>'; return; }
+  const W = el.clientWidth || 360, H = 210, mt = 10, mb = 24, mr = 12;
+  const t = pts.map((p) => new Date(p[0]).getTime()), v = pts.map((p) => p[1]);
+  const vmax = Math.max(...v) || 1, step = Math.pow(10, Math.floor(Math.log10(vmax))) * (vmax / Math.pow(10, Math.floor(Math.log10(vmax))) > 5 ? 2 : 1);
+  const top = Math.ceil(vmax / step) * step, ticks = []; for (let y = 0; y <= top; y += step) ticks.push(y);
+  const ml = String(fmt(top)).length * 7 + 10;
+  const X = (x) => ml + (x - t[0]) / ((t[t.length - 1] - t[0]) || 1) * (W - ml - mr), Y = (y) => H - mb - y / top * (H - mt - mb);
+  const days = []; const d0 = new Date(t[0]); d0.setHours(0, 0, 0, 0); for (let d = d0.getTime() + 864e5; d < t[t.length - 1]; d += 864e5) days.push(d);
+  let svg = '<svg width="100%" viewBox="0 0 ' + W + ' ' + H + '" height="' + H + '">';
+  ticks.forEach((y) => { svg += '<line x1="' + ml + '" x2="' + (W - mr) + '" y1="' + Y(y) + '" y2="' + Y(y) + '" stroke="var(--line)"/><text x="' + (ml - 6) + '" y="' + (Y(y) + 4) + '" text-anchor="end">' + fmt(y) + '</text>'; });
+  days.forEach((d) => { svg += '<text x="' + X(d) + '" y="' + (H - 6) + '" text-anchor="middle">' + new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + '</text>'; });
+  svg += '<path fill="none" stroke="var(--brown)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" d="' + t.map((x, i) => (i ? 'L' : 'M') + X(x).toFixed(1) + ',' + Y(v[i]).toFixed(1)).join('') + '"/>';
+  svg += '<circle r="4" fill="var(--brown)" visibility="hidden"/><rect x="' + ml + '" y="0" width="' + (W - ml - mr) + '" height="' + H + '" fill="transparent"/></svg>';
+  el.innerHTML = svg;
+  const dot = el.querySelector('circle'), hit = el.querySelector('rect'), svgEl = el.querySelector('svg');
+  hit.addEventListener('mousemove', (e) => {
+    const r = svgEl.getBoundingClientRect(); const x = (e.clientX - r.left) / r.width * W;
+    let i = 0; t.forEach((tt, j) => { if (Math.abs(X(tt) - x) < Math.abs(X(t[i]) - x)) i = j; });
+    dot.setAttribute('cx', X(t[i])); dot.setAttribute('cy', Y(v[i])); dot.setAttribute('visibility', 'visible');
+    showTip(e, '<div class="t">' + new Date(t[i]).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) + '</div>' + fmt(v[i]) + ' views');
+  });
+  hit.addEventListener('mouseleave', () => { tip.hidden = true; dot.setAttribute('visibility', 'hidden'); });
+}
+sel.addEventListener('change', () => show(+sel.value));
+document.querySelectorAll('.av-row').forEach((r) => r.addEventListener('click', () => { show(+r.dataset.i); document.getElementById('short').scrollIntoView({ behavior: 'smooth' }); }));
+let rw; addEventListener('resize', () => { clearTimeout(rw); rw = setTimeout(() => show(+sel.value), 150); });
+show(0);
+</script>
 </main></body></html>`);
 }
 
