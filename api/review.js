@@ -254,7 +254,7 @@ async function statsPage(res, d) {
 <meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">
 <title>Almanac analytics</title><style>${CSS}</style></head><body><main class="list">
 <div class="top">The Almanac · Review</div>${tabs(d, "stats")}
-<h1>Analytics</h1><p class="sub">${a ? "Updated " + esc(new Date(a.updated).toLocaleString("en-CA", { timeZone: "America/Vancouver", dateStyle: "medium", timeStyle: "short" })) + (refreshing ? " · refreshing now, check back in a few minutes" : " · refreshes every 2 hours") : "No numbers yet."}</p>
+<h1>Analytics</h1><p class="sub">${a ? "Updated " + esc(new Date(a.updated).toLocaleString("en-CA", { timeZone: "America/Vancouver", dateStyle: "medium", timeStyle: "short" })) + (refreshing ? " · refreshing now, check back in a few minutes" : " · refreshes every hour") : "No numbers yet."}</p>
 ${notes}
 <div class="card"><div class="small">Total views, all platforms</div>
 <div style="font:700 40px/1.1 Georgia,serif;font-variant-numeric:tabular-nums;margin:4px 0">${fmt(grand)}</div>
