@@ -16,7 +16,9 @@
 
 const REPO = process.env.GITHUB_REPO || "catrobert/get-rich-project";
 
-const CSS = `:root{--bg:#FBFAF6;--ink:#2b2b2b;--brown:#965C2A;--blue:#7AA8D0;--muted:#6b6b6b;--card:#fff;--line:#e4e0d6}
+const CSS = `.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-top:12px}.stat .sv{font:700 24px/1.2 Georgia,serif;font-variant-numeric:tabular-nums}
+.ft{width:100%;border-collapse:collapse;font-size:14px;font-variant-numeric:tabular-nums}.ft th,.ft td{text-align:left;padding:6px 4px;border-bottom:1px solid var(--line)}.ft th{color:var(--muted);font-weight:600}.ft .n{text-align:right}.ft tr.tot td{font-weight:700}
+:root{--bg:#FBFAF6;--ink:#2b2b2b;--brown:#965C2A;--blue:#7AA8D0;--muted:#6b6b6b;--card:#fff;--line:#e4e0d6}
 @media (prefers-color-scheme:dark){:root{--bg:#161512;--ink:#ece8df;--card:#1f1e1a;--line:#34312a;--muted:#a8a296}}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
 main{max-width:520px;margin:0 auto;padding:16px 16px 48px}
@@ -219,15 +221,40 @@ async function refreshIfStale(a) {
   } catch { return false; }
 }
 
+async function followersHistory() {
+  try {
+    const r = await fetch(`https://api.github.com/repos/${REPO}/contents/state/followers_history.json`, {
+      headers: { Authorization: `Bearer ${process.env.GITHUB_TOKEN}`, Accept: "application/vnd.github.raw+json", "User-Agent": "almanac-review" },
+    });
+    return r.ok ? await r.json() : [];
+  } catch { return []; }
+}
+
+// Latest followers per page and platform, and the gain since the check closest to 24 hours before.
+function followerGains(hist) {
+  const by = new Map();
+  for (const h of hist) {
+    const k = h.page + "|" + h.platform;
+    (by.get(k) || by.set(k, []).get(k)).push({ t: new Date(h.at).getTime(), n: Number(h.followers) || 0, page: h.page, platform: h.platform });
+  }
+  return [...by.values()].map((list) => {
+    list.sort((x, y) => x.t - y.t);
+    const last = list[list.length - 1];
+    const base = list.filter((x) => x.t <= last.t - 864e5).pop() || list[0];
+    return { page: last.page, platform: last.platform, followers: last.n, gained: last.n - base.n };
+  });
+}
+
 async function statsPage(res, d) {
-  const a = await analytics();
+  const [a, fhist] = await Promise.all([analytics(), followersHistory()]);
   const refreshing = await refreshIfStale(a);
   const rows = (a && a.rows) || [];
   const shorts = new Map();
   for (const r of rows) {
     const key = r.short || r.video;
-    const s = shorts.get(key) || { name: key, page: r.page, posted: r.posted, by: {} };
+    const s = shorts.get(key) || { name: key, page: r.page, posted: r.posted, by: {}, likes: 0, comments: 0, shares: 0, saves: 0 };
     s.by[r.platform] = (s.by[r.platform] || 0) + (Number(r.views) || 0);
+    for (const k of ["likes", "comments", "shares", "saves"]) s[k] += Number(r[k]) || 0;
     shorts.set(key, s);
   }
   const list = [...shorts.values()].map((s) => ({ ...s, total: Object.values(s.by).reduce((x, y) => x + y, 0) }))
@@ -243,10 +270,27 @@ async function statsPage(res, d) {
     return `<div class="pie">${pie(parts)}<div><div class="t">${esc(s.name)}</div>
       <div class="small">${esc(s.page)} · ${esc(s.posted)}</div>
       <div class="small">${parts.map((p) => `${p.n}: ${fmt(p.v)}`).join(" · ")}</div>
+      <div class="small">❤ ${fmt(s.likes)} likes · 💬 ${fmt(s.comments)} comments · ↗ ${fmt(s.shares)} shares${s.saves ? ` · 🔖 ${fmt(s.saves)} saves` : ""}</div>
       ${top.v ? `<div class="small">Most views: <b>${top.n}</b></div>` : ""}</div></div>`;
   }).join("");
   const grand = list.reduce((x, s) => x + s.total, 0);
   const perPlat = PLAT.map(([n]) => [n, list.reduce((x, s) => x + (s.by[n] || 0), 0)]);
+  const sum = (k) => list.reduce((x, s) => x + s[k], 0);
+  const gains = followerGains(fhist.length ? fhist : Object.entries((a && a.followers) || {}).flatMap(([page, per]) =>
+    Object.entries(per).filter(([, n]) => n != null).map(([platform, followers]) => ({ at: a.updated, page, platform, followers }))));
+  const folTotal = gains.reduce((x, g) => x + g.followers, 0), folNew = gains.reduce((x, g) => x + g.gained, 0);
+  const signed = (n) => (n > 0 ? "+" : "") + fmt(n);
+  const stat = (label, v) => `<div class="stat"><div class="small">${label}</div><div class="sv">${v}</div></div>`;
+  const engagement = `<div class="card stats">${stat("Followers", fmt(folTotal))}${stat("New followers, 24h", signed(folNew))}${stat("Likes", fmt(sum("likes")))}${stat("Comments", fmt(sum("comments")))}${stat("Shares", fmt(sum("shares")))}${stat("Saves (Instagram)", fmt(sum("saves")))}</div>`;
+  const pagesF = [...new Set(gains.map((g) => g.page))].sort();
+  const folTable = `<div class="card"><table class="ft"><thead><tr><th>Page</th><th>Platform</th><th class="n">Followers</th><th class="n">New (24h)</th></tr></thead><tbody>${
+    pagesF.map((p) => {
+      const g = gains.filter((x) => x.page === p).sort((x, y) => y.followers - x.followers);
+      const t = g.reduce((x, y) => x + y.followers, 0), n = g.reduce((x, y) => x + y.gained, 0);
+      return g.map((x) => `<tr><td>${esc(p)}</td><td>${esc(x.platform)}</td><td class="n">${fmt(x.followers)}</td><td class="n">${signed(x.gained)}</td></tr>`).join("")
+        + `<tr class="tot"><td>${esc(p)}</td><td>All platforms</td><td class="n">${fmt(t)}</td><td class="n">${signed(n)}</td></tr>`;
+    }).join("")}</tbody></table>
+<p class="small" style="margin:8px 0 0">YouTube shares and subscribers arrive 2–3 days late; Facebook reports views only.</p></div>`;
   const learn = ((a && a.learnings) || []).map((l) => `<li>${esc(l.point)}<div class="small">${esc(l.evidence)}</div></li>`).join("");
   const notes = ((a && a.notes) || []).map((n) => `<p class="small" style="color:#b3412f">${esc(n)}</p>`).join("");
   res.setHeader("Content-Type", "text/html; charset=utf-8");
@@ -259,6 +303,9 @@ ${notes}
 <div class="card"><div class="small">Total views, all platforms</div>
 <div style="font:700 40px/1.1 Georgia,serif;font-variant-numeric:tabular-nums;margin:4px 0">${fmt(grand)}</div>
 <div class="small">${perPlat.map(([n, v]) => `${n} ${fmt(v)}`).join(" · ")} · ${list.length} Shorts</div></div>
+${engagement}
+<h2 class="top" style="margin-top:22px">Followers</h2>
+${folTable}
 <h2 class="top" style="margin-top:22px">Most views overall</h2>
 <div class="card">${bars || '<p class="small">No views yet.</p>'}</div>
 <h2 class="top" style="margin-top:22px">Views by platform, per Short</h2>
