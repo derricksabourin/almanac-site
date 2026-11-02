@@ -1,1 +1,1 @@
-{"cleanUrls": true, "rewrites": [{"source": "/review", "destination": "/api/review"}, {"source": "/books", "destination": "/api/books"}]}
+{"cleanUrls": true, "rewrites": [{"source": "/review", "destination": "/api/review"}, {"source": "/books", "destination": "/api/books"}, {"source": "/tiktok/login", "destination": "/api/tiktok"}, {"source": "/tiktok/callback", "destination": "/api/tiktok?cb=1"}]}
