@@ -142,7 +142,9 @@ function page({ title, show, date, video, thumb, watch, script, notes, caption, 
 <style>${CSS}</style></head><body><main>
 <div class="top">The Almanac · Review</div>
 <h1>${esc(title)}</h1><p class="sub">${esc(show)}${date ? " · " + esc(date) : ""}</p>
-${video ? `<video src="${esc(video)}" controls playsinline preload="metadata"></video>`
+${video ? `<video src="${esc(video)}" controls playsinline preload="metadata"></video>
+<a class="rev" style="display:block;text-align:center;text-decoration:none;margin:10px 0 4px;font:600 17px/1 -apple-system,sans-serif;padding:16px;border-radius:12px" href="/review?i=${esc(i)}&k=${esc(k)}&v=1" download="short.mp4">Download for TikTok</a>
+<p class="small" style="margin-top:0">On iPhone: after it downloads, open it from Downloads (Files) → Share → Save Video, then post from Photos.</p>`
          : `<p><a href="${esc(watch)}">Watch on GitHub</a> (needs your GitHub login)</p>`}
 ${thumb ? `<details><summary>Thumbnail</summary><img src="${esc(thumb)}" alt="Thumbnail" style="width:60%;display:block;margin:10px auto 4px;border-radius:10px"><p class="small" style="text-align:center">To change the words, ask below (e.g. "thumbnail text: BROKE AT 40").</p></details>` : ""}
 ${flash ? `<div class="status busy">${esc(flash)}</div>` : ""}
