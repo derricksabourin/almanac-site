@@ -15,7 +15,14 @@ module.exports = async (req, res) => {
   const [a, hist] = await Promise.all([file("state/analytics.json"), file("state/views_history.json")]);
   if (!a) return res.status(503).send(JSON.stringify({ error: "No analytics yet" }));
   const what = String(req.query.what || "videos");
-  if (what === "history") return res.status(200).send(JSON.stringify(hist || []));
+  if (what === "history") {
+    // Name each sample's Short (older samples only carry the caption): same platform and caption as a current row.
+    const short = new Map((a.rows || []).map((r) => [r.platform + "|" + r.video, [r.short, r.page]]));
+    return res.status(200).send(JSON.stringify((hist || []).map((h) => {
+      const [s, p] = short.get(h.platform + "|" + h.video) || [h.short || h.video, h.page || ""];
+      return { at: h.at, platform: h.platform, short: h.short || s, page: h.page || p, views: h.views };
+    })));
+  }
   if (what === "learnings")
     return res.status(200).send(JSON.stringify((a.learnings || []).map((l) => ({ ...l, at: a.learned_at }))));
   if (what === "notes") return res.status(200).send(JSON.stringify((a.notes || []).map((n) => ({ note: n, updated: a.updated }))));
