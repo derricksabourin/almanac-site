@@ -28,7 +28,7 @@ a.b,button{display:block;text-align:center;background:var(--brown);color:#fff;pa
 module.exports = async (req, res) => {
   const q = req.query || {};
   const path = (req.url || "").split("?")[0];
-  const key = process.env.TIKTOK_CLIENT_KEY, secret = process.env.TIKTOK_CLIENT_SECRET;
+  const key = (process.env.TIKTOK_CLIENT_KEY || "").trim(), secret = (process.env.TIKTOK_CLIENT_SECRET || "").trim();   // pasted values often carry a stray newline
   if (!key || !secret) return html(res, 503, "<h1>Not set up yet</h1><p>TIKTOK_CLIENT_KEY and TIKTOK_CLIENT_SECRET aren't in Vercel's environment variables.</p>");
 
   if (!q.cb && !path.endsWith("/callback")) {
