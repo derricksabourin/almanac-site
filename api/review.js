@@ -168,7 +168,7 @@ ${open ? `<form method="post" class="btns">
 <details open><summary>Script</summary><ol>${lines}</ol></details>
 ${notes && notes !== "- none" ? `<details><summary>Fact-check notes</summary><p class="small">${esc(notes).replace(/\n/g, "<br>")}</p></details>` : ""}
 ${caption ? `<details><summary>Caption</summary><p class="small">${esc(caption).replace(/\n/g, "<br>")}</p><button type="button" class="rev" onclick="navigator.clipboard.writeText(this.dataset.t);this.textContent='Copied'" data-t="${esc(caption)}">Copy caption</button></details>` : ""}
-${pinned && !pinned.startsWith("No book") ? `<details open><summary>Pinned comment</summary><p class="small">${esc(pinned)}</p><p class="small">Pin it under the post on YouTube, TikTok, Instagram and Facebook. Threads gets the clickable book link automatically.</p><button type="button" class="rev" onclick="navigator.clipboard.writeText(this.dataset.t);this.textContent='Copied'" data-t="${esc(pinned)}">Copy pinned comment</button>
+${pinned && !/^No (book|pinned comment)/.test(pinned) ? `<details open><summary>Pinned comment</summary><p class="small">${esc(pinned)}</p><p class="small">Pin it under the post on YouTube, TikTok, Instagram and Facebook. Threads gets the clickable book link automatically.</p><button type="button" class="rev" onclick="navigator.clipboard.writeText(this.dataset.t);this.textContent='Copied'" data-t="${esc(pinned)}">Copy pinned comment</button>
 <button type="button" class="rev" style="margin-top:8px" onclick="navigator.clipboard.writeText(this.dataset.t);this.textContent='Copied'" data-t="${esc(pinned.replace(/\s*Link in bio\.?\s*$/, ""))}">Copy for TikTok (no bio link yet)</button></details>` : ""}
 <p class="small">Changes only re-make the shots they touch. <a href="https://github.com/${REPO}/issues/${esc(i)}">Open in GitHub</a></p>
 </main></body></html>`;
@@ -188,7 +188,7 @@ const PLAT = [["YouTube", "#d0453a"], ["Instagram", "#c2408a"], ["TikTok", "#1fa
 
 function tabs(d, tab) {
   const t = (id, label) => `<a href="/review?d=${encodeURIComponent(d)}${id ? "&tab=" + id : ""}" class="tab${tab === id ? " on" : ""}">${label}</a>`;
-  return `<nav class="tabs">${t("", "Review")}${t("stats", "Analytics")}${t("plan", "Plan")}${t("accounts", "Accounts")}</nav>`;
+  return `<nav class="tabs">${t("", "Review")}${t("stats", "Analytics")}${t("comments", "Comments")}${t("plan", "Plan")}${t("accounts", "Accounts")}</nav>`;
 }
 
 // One pie per Short: its views split by platform.
@@ -550,6 +550,44 @@ async function accountsPage(res, d) {
 </main></body></html>`);
 }
 
+// New comments on our posts, each with a reply Claude drafted. Nothing is posted from here:
+// copy the reply, open the comment in the app, paste, then tick Done (remembered on this phone).
+async function commentsPage(res, d) {
+  const all = Object.values((await stateFile("comments.json")) || {});
+  const todo = all.filter((c) => !c.replied && c.draft !== "").sort((a, b) => String(b.at).localeCompare(String(a.at)));
+  const colour = Object.fromEntries(PLAT);
+  const card = (c) => `<div class="cm" data-id="${esc(c.id)}">
+  <div class="ch"><span class="dot" style="background:${colour[c.platform] || "#888"}"></span><b>${esc(c.platform)}</b> · ${esc(c.page)} · <span class="small">${esc(c.short)}</span></div>
+  <p class="ct"><b>${esc(c.author)}</b>: ${esc(c.text)}</p>
+  ${c.draft ? `<p class="dr">${esc(c.draft)}</p>` : '<p class="small">No draft yet (next hourly run).</p>'}
+  <div class="row">${c.draft ? `<button type="button" onclick="navigator.clipboard.writeText(this.dataset.t);this.textContent='Copied'" data-t="${esc(c.draft)}">Copy reply</button>` : ""}
+  ${c.link ? `<a class="btn2" href="${esc(c.link)}" target="_blank" rel="noopener">Open</a>` : ""}
+  <button type="button" class="ghost" onclick="done(this)">Done</button></div></div>`;
+  const body = !all.length
+    ? '<p class="small">No comments collected yet. The hourly analytics run reads YouTube, Instagram and Threads comments and drafts a reply for each. TikTok and Facebook comments need replying in their apps.</p>'
+    : (todo.length ? todo.map(card).join("") : '<p class="small">All caught up.</p>') +
+      `<p class="small">${all.length} comments seen · ${all.filter((c) => c.replied).length} already replied. Edit any draft so it sounds like you; reply within the first hour of a post when you can.</p>`;
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.setHeader("Cache-Control", "no-store");
+  res.status(200).send(`<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">
+<title>Almanac comments</title><style>${CSS}
+.cm{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:10px 0}
+.ch{display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:.9rem}.dot{width:10px;height:10px;border-radius:50%;display:inline-block}
+.ct{margin:8px 0 6px}.dr{margin:0 0 8px;padding:8px 10px;border-left:3px solid var(--brown);background:var(--bg);border-radius:6px}
+.row{display:flex;gap:8px;flex-wrap:wrap}.row button,.row a{flex:1;min-width:90px;text-align:center;padding:10px;border-radius:10px;border:0;font-weight:600;font-size:.9rem;text-decoration:none}
+.row button{background:var(--brown);color:#fff}.row .btn2{background:var(--line);color:var(--ink)}.row .ghost{background:transparent;border:1px solid var(--line);color:var(--ink)}
+.cm.hide{display:none}</style></head><body><main class="list">
+<div class="top">The Almanac · Review</div>${tabs(d, "comments")}<h1>Comments</h1>${body}
+<script>
+const K = "almanac-done-comments";
+const get = () => { try { return JSON.parse(localStorage.getItem(K) || "[]"); } catch { return []; } };
+function done(b) { const c = b.closest(".cm"); const s = get(); s.push(c.dataset.id); try { localStorage.setItem(K, JSON.stringify(s.slice(-500))); } catch {} c.classList.add("hide"); }
+for (const id of get()) { const c = document.querySelector('.cm[data-id="' + CSS.escape(id) + '"]'); if (c) c.classList.add("hide"); }
+</script>
+</main></body></html>`);
+}
+
 async function dashboard(res, d) {
   const open = await gh(`/issues?labels=approval&state=open&per_page=30`);
   const done = await gh(`/issues?labels=approval&state=closed&per_page=6`);
@@ -589,6 +627,7 @@ module.exports = async (req, res) => {
       }
       if (q.tab === "plan") return await planPage(res, String(q.d));
       if (q.tab === "accounts") return await accountsPage(res, String(q.d));
+      if (q.tab === "comments") return await commentsPage(res, String(q.d));
       return q.tab === "stats" ? await statsPage(res, String(q.d)) : await dashboard(res, String(q.d));
     }
     if (!i || !k) throw new Error("bad link");
