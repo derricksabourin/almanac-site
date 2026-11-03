@@ -588,7 +588,19 @@ for (const id of get()) { const c = document.querySelector('.cm[data-id="' + CSS
 </main></body></html>`);
 }
 
+// GitHub sometimes skips its schedule for a whole day; opening the Review tab starts the
+// daily job if it hasn't run in 20 hours (it skips pages that already have today's Short).
+async function kickDailyIfMissed() {
+  try {
+    const last = ((await gh(`/actions/workflows/daily.yml/runs?per_page=1`)).workflow_runs || [])[0];
+    if (last && (last.status !== "completed" || Date.now() - new Date(last.created_at) < 20 * 3600e3)) return false;
+    await gh(`/actions/workflows/daily.yml/dispatches`, { method: "POST", body: JSON.stringify({ ref: "main" }) });
+    return true;
+  } catch { return false; }
+}
+
 async function dashboard(res, d) {
+  const kicked = await kickDailyIfMissed();
   const open = await gh(`/issues?labels=approval&state=open&per_page=30`);
   const done = await gh(`/issues?labels=approval&state=closed&per_page=6`);
   const item = (it, live) => {
@@ -607,7 +619,7 @@ async function dashboard(res, d) {
 <title>Almanac reviews</title><style>${CSS}</style></head><body><main class="list">
 <div class="top">The Almanac · Review</div>${tabs(d, "")}<h1>${open.length ? `${open.length} waiting` : "All caught up"}</h1>
 <p class="sub">A new Short arrives early each morning.</p>
-${open.map((it) => item(it, true)).join("") || `<p class="small">Nothing to review right now.</p>`}
+${open.map((it) => item(it, true)).join("") || (kicked ? `<p class="small">Today's Shorts hadn't started, so they're being made now. They'll show here in about 20 minutes.</p>` : `<p class="small">Nothing to review right now.</p>`)}
 ${done.length ? `<h2 class="top" style="margin-top:28px">Recent</h2>${done.map((it) => item(it, false)).join("")}` : ""}
 </main></body></html>`);
 }
