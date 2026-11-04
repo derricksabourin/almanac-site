@@ -145,7 +145,8 @@ function page({ title, show, date, video, thumb, watch, script, notes, caption, 
 <div class="top">The Almanac · Review</div>
 <h1>${esc(title)}</h1><p class="sub">${esc(show)}${date ? " · " + esc(date) : ""}</p>
 ${video ? `<video src="${esc(video)}" controls playsinline preload="metadata"></video>
-<a class="rev" style="display:block;text-align:center;text-decoration:none;margin:10px 0 4px;font:600 17px/1 -apple-system,sans-serif;padding:16px;border-radius:12px" href="/review?i=${esc(i)}&k=${esc(k)}&v=1" download="short.mp4">Download for TikTok</a>
+<div style="display:flex;gap:8px;margin:10px 0 4px"><a class="rev" style="flex:2;text-align:center;text-decoration:none;font:600 17px/1 -apple-system,sans-serif;padding:16px 8px;border-radius:12px" href="/review?i=${esc(i)}&k=${esc(k)}&v=1" download="short.mp4">Download for TikTok</a>
+<a class="rev" style="flex:1;text-align:center;text-decoration:none;font:600 17px/1 -apple-system,sans-serif;padding:16px 8px;border-radius:12px" href="/review?i=${esc(i)}&k=${esc(k)}&t=1" download="cover.jpg">Download cover</a></div>
 <p class="small" style="margin-top:0">On iPhone: after it downloads, open it from Downloads (Files) → Share → Save Video, then post from Photos.</p>`
          : `<p><a href="${esc(watch)}">Watch on GitHub</a> (needs your GitHub login)</p>`}
 ${thumb ? `<details><summary>Thumbnail</summary><img src="${esc(thumb)}" alt="Thumbnail" style="width:60%;display:block;margin:10px auto 4px;border-radius:10px"><p class="small" style="text-align:center">To change the words, ask below (e.g. "thumbnail text: BROKE AT 40").</p></details>` : ""}
@@ -653,11 +654,13 @@ module.exports = async (req, res) => {
 
     // ?v=1 plays the video straight from the GitHub release when it wasn't copied to
     // public storage: a short-lived download link, so no GitHub login is needed.
-    if (q.v !== undefined) {
+    // ?t=1 does the same for the cover image (thumbnail.jpg), for posting to TikTok.
+    if (q.v !== undefined || q.t !== undefined) {
+      const file = q.t !== undefined ? "thumbnail.jpg" : "short.mp4";
       const tag = (body.match(/tag:(short-[a-z_]+-[0-9-]+)/) || [])[1];
       if (!tag) { res.status(404).send("No video for this Short."); return; }
       const rel = await gh(`/releases/tags/${tag}`);
-      const asset = (rel.assets || []).find((a) => a.name === "short.mp4");
+      const asset = (rel.assets || []).find((a) => a.name === file);
       if (!asset) { res.status(404).send("No video for this Short."); return; }
       const r = await fetch(`https://api.github.com/repos/${REPO}/releases/assets/${asset.id}`, {
         redirect: "manual",
