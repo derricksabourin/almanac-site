@@ -168,8 +168,7 @@ document.querySelectorAll("a.save").forEach((a) => a.addEventListener("click", a
     if (err && err.name !== "AbortError") location.href = a.href;
   }
 }));
-</script>
-<p class="small" style="margin-top:0">On iPhone: after it downloads, open it from Downloads (Files) → Share → Save Video, then post from Photos.</p>`
+</script>`
          : `<p><a href="${esc(watch)}">Watch on GitHub</a> (needs your GitHub login)</p>`}
 ${thumb ? `<details><summary>Thumbnail</summary><img src="${esc(thumb)}" alt="Thumbnail" style="width:60%;display:block;margin:10px auto 4px;border-radius:10px"><p class="small" style="text-align:center">To change the words, ask below (e.g. "thumbnail text: BROKE AT 40").</p></details>` : ""}
 ${flash ? `<div class="status busy">${esc(flash)}</div>` : ""}
