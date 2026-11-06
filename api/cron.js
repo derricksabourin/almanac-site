@@ -24,7 +24,9 @@ async function kick(workflow, minHours) {
 module.exports = async (req, res) => {
   if (!String(req.headers["user-agent"] || "").startsWith("vercel-cron")) return res.status(403).send("no");
   const out = {};
-  for (const [wf, h] of [["daily.yml", 2], ["analytics.yml", 0.75]]) {
+  // ?w=propose: the evening script proposal (once a day); otherwise the daily Short + analytics.
+  const jobs = (req.query || {}).w === "propose" ? [["propose.yml", 20]] : [["daily.yml", 2], ["analytics.yml", 0.75]];
+  for (const [wf, h] of jobs) {
     try { out[wf] = await kick(wf, h); } catch (e) { out[wf] = String(e.message || e); }
   }
   res.status(200).json(out);

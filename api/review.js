@@ -89,7 +89,7 @@ function md(text) {
 function said(t) {
   const m = t.match(/^\/(\w+)\s*([\s\S]*)/);
   const rest = (m && m[2] || "").replace(/_Sent from the review page\._/, "").trim();
-  return { approve: "Approved.", reject: "Rejected.", render: "Make this cut.", revise: rest, draft: rest }[m && m[1]] ?? t;
+  return { approve: "Approved.", reject: "Rejected.", render: "Make this cut.", revise: rest, draft: rest, new: "Different story, please." }[m && m[1]] ?? t;
 }
 
 function thread(comments) {
@@ -621,9 +621,49 @@ async function kickDailyIfMissed() {
   } catch { return false; }
 }
 
+// Tonight's proposal: the day's story and script, before anything is made.
+function proposalPage(res, issue, comments, i, k, flash) {
+  const body = issue.body || "";
+  const head = (body.match(/^## (.+?) — (\S+)/m) || []);
+  const lines = (name) => section(body, name).split("\n").filter(Boolean);
+  const story = (body.match(/\*\*Story:\*\* (.+)/) || [])[1] || "";
+  const why = (body.match(/\*\*Why:\*\* (.+)/) || [])[1] || "";
+  const meta = (body.match(/\*\*Series:\*\*.+/) || [])[0] || "";
+  const open = issue.state === "open";
+  const texts = comments.map((c) => c.body);
+  const busy = open && /(Rewriting with your suggestions|Finding a different story)…/.test(texts[texts.length - 1] || "");
+  const st = !open ? (/Approved/.test(texts.join("\n")) ? "Approved: the video is being made, or already on the Review page."
+                                                       : "Made as proposed this morning.")
+    : busy ? "Working on it… this page refreshes by itself." : "";
+  const script = lines("Script").map((l) => l.replace(/^\d+\.\s*/, "").replace(/\s*_\(map\)_$/, " 🗺️"));
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.status(200).send(`<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">
+${busy ? '<meta http-equiv="refresh" content="20">' : ""}<title>Proposal: ${esc(lines("Title")[0] || "")}</title><style>${CSS}
+.hook{background:var(--card);border:2px solid var(--brown);border-radius:12px;padding:12px 14px;margin:12px 0}
+.hook p{margin:4px 0;font:600 18px/1.35 Georgia,serif}</style></head><body><main>
+<div class="top">The Almanac · Tonight's proposal</div>
+<h1>${esc(lines("Title")[0] || "")}</h1><p class="sub">${esc(head[1] || "")} · for ${esc(head[2] || "")}</p>
+<p class="small">Story: <b>${esc(story)}</b>${why ? ` · ${esc(why)}` : ""}<br>${esc(meta.replace(/\*\*/g, ""))}</p>
+${flash ? `<div class="status">${esc(flash)}</div>` : ""}${st ? `<div class="status ${busy ? "busy" : "done"}">${esc(st)}</div>` : ""}
+<div class="hook"><div class="small">Hook (first 3 shots, 1–2 seconds each)</div>${lines("Hook \\(first 3 shots\\)").map((l) => `<p>${esc(l.replace(/^>\s*/, ""))}</p>`).join("")}</div>
+<details><summary>Opening picture</summary><p class="small">${esc(section(body, "Opening picture"))}</p></details>
+<details open><summary>Full script (${script.length} shots)</summary><ol>${script.map((l) => `<li>${esc(l)}</li>`).join("")}</ol></details>
+${section(body, "Fact-check notes") ? `<details><summary>Fact-check notes</summary><p class="small">${esc(section(body, "Fact-check notes")).replace(/\n/g, "<br>")}</p></details>` : ""}
+${open && !busy ? `<form method="post" class="btns">
+  <button class="ok" name="action" value="approve">Approve: make this video</button>
+  <textarea name="notes" placeholder="Suggestions for the hook, the story, the ending… e.g. open on the explosion, cut the date from shot 2"></textarea>
+  <button class="rev" name="action" value="revise">Rewrite with my suggestions</button>
+  <button class="no" name="action" value="new" onclick="return confirm('Drop this story and propose a different one?')">Different story</button>
+</form><p class="small">No answer by about 1 am: this script is made as is.</p>` : ""}
+${thread(comments)}
+</main></body></html>`);
+}
+
 async function dashboard(res, d) {
   const kicked = await kickDailyIfMissed();
   const open = await gh(`/issues?labels=approval&state=open&per_page=30`);
+  const props = await gh(`/issues?labels=proposal&state=open&per_page=5`);
   const done = await gh(`/issues?labels=approval&state=closed&per_page=6`);
   const item = (it, live) => {
     const key = ((it.body || "").match(/<!-- key:([a-f0-9]+) -->/) || [])[1];
@@ -639,8 +679,11 @@ async function dashboard(res, d) {
   res.status(200).send(`<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">
 <title>Almanac reviews</title><style>${CSS}</style></head><body><main class="list">
-<div class="top">The Almanac · Review</div>${tabs(d, "")}<h1>${open.length ? `${open.length} waiting` : "All caught up"}</h1>
-<p class="sub">A new Short arrives early each morning.</p>
+<div class="top">The Almanac · Review</div>${tabs(d, "")}<h1>${open.length + props.length ? `${open.length + props.length} waiting` : "All caught up"}</h1>
+<p class="sub">A script proposal arrives each evening; the Short is made once you approve it (or by morning).</p>
+${props.map((it) => { const key = ((it.body || "").match(/<!-- key:([a-f0-9]+) -->/) || [])[1];
+  return `<a class="item" style="border:2px solid var(--brown)" href="/review?i=${it.number}&k=${esc(key || "")}"><div class="t">${esc(it.title.replace(/^Proposal:\s*/, "").replace(/^.*? — /, ""))}</div>
+  <div class="small">${esc(((it.body || "").match(/^## (.+?) — /m) || [])[1] || "")} · tonight's proposal</div><span class="tag">Script to approve</span></a>`; }).join("")}
 ${open.map((it) => item(it, true)).join("") || (kicked ? `<p class="small">Today's Shorts hadn't started, so they're being made now. They'll show here in about 20 minutes.</p>` : `<p class="small">Nothing to review right now.</p>`)}
 ${done.length ? `<h2 class="top" style="margin-top:28px">Recent</h2>${done.map((it) => item(it, false)).join("")}` : ""}
 </main></body></html>`);
@@ -704,6 +747,7 @@ module.exports = async (req, res) => {
       if (action === "revise" && notes) comment = `/revise ${notes}`;
       if (action === "draft" && notes) comment = `/draft ${notes}`;
       if (action === "render") comment = "/render";
+      if (action === "new") comment = "/new";
       if (comment && issue.state === "open") await gh(`/issues/${i}/comments`, { method: "POST", body: JSON.stringify({ body: comment }) });
       const flash = (action === "revise" || action === "draft") && !notes ? "Type your notes first, then send." : "";
       res.writeHead(303, { Location: `/review?i=${i}&k=${k}${flash ? "&e=notes" : ""}` });
@@ -712,6 +756,8 @@ module.exports = async (req, res) => {
     }
 
     const comments = await gh(`/issues/${i}/comments?per_page=100`);
+    if ((issue.labels || []).some((l) => l.name === "proposal"))
+      return proposalPage(res, issue, comments, i, k, q.e === "notes" ? "Type your suggestions first, then send." : "");
     const head = (body.match(/^## (.+?) — (\S+)/m) || []);
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.status(200).send(page({
