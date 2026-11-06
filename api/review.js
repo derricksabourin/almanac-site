@@ -147,27 +147,32 @@ function page({ title, show, date, video, thumb, watch, script, notes, caption, 
 ${video ? `<video src="${esc(video)}" controls playsinline preload="metadata"></video>
 <div style="display:flex;gap:8px;margin:10px 0 4px"><a class="rev save" data-src="${esc(/^https:\/\//.test(video || "") ? video : "")}" data-name="short.mp4" style="flex:2;text-align:center;text-decoration:none;font:600 17px/1 -apple-system,sans-serif;padding:16px 8px;border-radius:12px" href="/review?i=${esc(i)}&k=${esc(k)}&v=1" download="short.mp4">Save video for TikTok</a>
 <a class="rev save" data-src="${esc(thumb || "")}" data-name="cover.jpg" style="flex:1;text-align:center;text-decoration:none;font:600 17px/1 -apple-system,sans-serif;padding:16px 8px;border-radius:12px" href="/review?i=${esc(i)}&k=${esc(k)}&t=1" download="cover.jpg">Save cover</a></div>
-<p class="small" style="text-align:center;margin:0 0 8px">Opens your phone's share menu: tap Save Video / Save Image to put it in Photos.</p>
+<p class="small" style="text-align:center;margin:0 0 8px">Tap once to load, then tap again and choose Save Video / Save Image to put it in Photos.</p>
 <script>
-// Phones save plain downloads to Files, which TikTok can't see. Sharing the file instead
-// offers "Save Video" / "Save Image" straight to Photos. Falls back to a normal download.
-document.querySelectorAll("a.save").forEach((a) => a.addEventListener("click", async (e) => {
-  const src = a.dataset.src;
-  if (!src || !navigator.canShare) return;
-  e.preventDefault();
+// Phones save plain downloads to Files, which TikTok can't see; the share menu's
+// "Save Video" / "Save Image" puts the file in Photos. iPhone only opens the share menu
+// straight after a tap, so the first tap loads the file and the second tap shares it.
+document.querySelectorAll("a.save").forEach((a) => {
+  let file = null;
   const label = a.textContent;
-  try {
-    a.textContent = "Loading…";
-    const blob = await (await fetch(src)).blob();
-    const file = new File([blob], a.dataset.name, { type: blob.type || (a.dataset.name.endsWith(".mp4") ? "video/mp4" : "image/jpeg") });
-    a.textContent = label;
-    if (navigator.canShare({ files: [file] })) await navigator.share({ files: [file] });
-    else location.href = a.href;
-  } catch (err) {
-    a.textContent = label;
-    if (err && err.name !== "AbortError") location.href = a.href;
-  }
-}));
+  a.addEventListener("click", async (e) => {
+    if (!a.dataset.src || !navigator.canShare) return;          // plain download instead
+    e.preventDefault();
+    if (file) {
+      try { await navigator.share({ files: [file] }); }
+      catch (err) { if (err && err.name !== "AbortError") location.href = a.href; }
+      return;
+    }
+    try {
+      a.textContent = "Loading…";
+      const blob = await (await fetch(a.dataset.src)).blob();
+      const f = new File([blob], a.dataset.name, { type: a.dataset.name.endsWith(".mp4") ? "video/mp4" : "image/jpeg" });
+      if (!navigator.canShare({ files: [f] })) { a.textContent = label; location.href = a.href; return; }
+      file = f;
+      a.textContent = "Ready: tap to save";
+    } catch (err) { a.textContent = label; location.href = a.href; }
+  });
+});
 </script>`
          : `<p><a href="${esc(watch)}">Watch on GitHub</a> (needs your GitHub login)</p>`}
 ${thumb ? `<details><summary>Thumbnail</summary><img src="${esc(thumb)}" alt="Thumbnail" style="width:60%;display:block;margin:10px auto 4px;border-radius:10px"><p class="small" style="text-align:center">To change the words, ask below (e.g. "thumbnail text: BROKE AT 40").</p></details>` : ""}
