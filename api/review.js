@@ -619,7 +619,8 @@ for (const id of get()) { const c = document.querySelector('.cm[data-id="' + CSS
 // daily job if it hasn't run in 20 hours (it skips pages that already have today's Short).
 async function kickDailyIfMissed() {
   try {
-    const last = ((await gh(`/actions/workflows/daily.yml/runs?per_page=1`)).workflow_runs || [])[0];
+    const last = ((await gh(`/actions/workflows/daily.yml/runs?per_page=20`)).workflow_runs || [])
+      .find((r) => r.event === "schedule" || r.event === "workflow_dispatch");
     if (last && (last.status !== "completed" || Date.now() - new Date(last.created_at) < 20 * 3600e3)) return false;
     await gh(`/actions/workflows/daily.yml/dispatches`, { method: "POST", body: JSON.stringify({ ref: "main" }) });
     return true;

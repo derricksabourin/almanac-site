@@ -14,8 +14,10 @@ async function gh(path, opts = {}) {
 }
 
 async function kick(workflow, minHours) {
-  const runs = await gh(`/actions/workflows/${workflow}/runs?per_page=1`);
-  const last = (runs.workflow_runs || [])[0];
+  // Only scheduled or started-by-hand runs count: comment-triggered runs (e.g. a skipped
+  // reply on an issue) aren't the job itself, and once hid a missed evening proposal (Nov 7).
+  const runs = await gh(`/actions/workflows/${workflow}/runs?per_page=20`);
+  const last = (runs.workflow_runs || []).find((r) => r.event === "schedule" || r.event === "workflow_dispatch");
   if (last && (last.status !== "completed" || Date.now() - new Date(last.created_at) < minHours * 3600e3)) return "recent";
   await gh(`/actions/workflows/${workflow}/dispatches`, { method: "POST", body: JSON.stringify({ ref: "main" }) });
   return "started";
